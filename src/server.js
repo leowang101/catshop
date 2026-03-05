@@ -85,7 +85,7 @@ if (SERVE_FRONTEND) {
   // Admin subdomain handling
   app.get("*", (req, res, next) => {
     const hostname = req.hostname || req.get("host")?.split(":")[0] || "";
-    const isAdmin = hostname.startsWith("admin.") || hostname.includes("admin-shopping") || hostname.includes("shop-admin");
+    const isAdmin = hostname.startsWith("admin.") || hostname.startsWith("shopadmin.") || hostname.includes("admin-shopping") || hostname.includes("shop-admin");
     if (!isAdmin) return next();
     if (req.path.startsWith("/api/")) return next();
     if (/\.\w+$/.test(req.path) && req.path !== "/") return next();
