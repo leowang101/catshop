@@ -34,6 +34,9 @@
 
   function showPage(page, opts) {
     document.body.dataset.page = page;
+    document.querySelectorAll(".page").forEach(el => el.classList.remove("active"));
+    const target = document.querySelector(`.page[data-page="${page}"]`);
+    if (target) target.classList.add("active");
     if (opts?.scrollTop) window.scrollTo(0, 0);
     try { localStorage.setItem(APP_PAGE_KEY, page); } catch {}
   }
