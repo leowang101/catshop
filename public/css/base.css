@@ -246,3 +246,30 @@ button {
 .cart-merge-footer .btn-ghost,
 .cart-merge-footer .sheet-btn-secondary,
 .cart-merge-footer .sheet-btn-primary { flex: 1; }
+
+/* ====== 补豆商城按钮（查询历史、修改清单等） ====== */
+.inventory-shop-btn {
+  height: 30px;
+  padding: 0 12px;
+  border: 1.5px solid rgba(34,211,238,0.45);
+  border-radius: 15px;
+  background: linear-gradient(135deg, rgba(34,211,238,0.38), rgba(249,115,22,0.32));
+  color: #1e3a5f;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+  -webkit-appearance: none;
+  outline: none;
+}
+.inventory-shop-btn:hover {
+  background: linear-gradient(135deg, rgba(34,211,238,0.48), rgba(249,115,22,0.42));
+  border-color: rgba(34,211,238,0.6);
+}
+.inventory-shop-btn:active { transform: scale(0.98); }
+.inventory-shop-btn svg { flex-shrink: 0; }
