@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>体验码转化跟踪 - 猫咪家</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;background:#f0f2f5;color:#333;line-height:1.6}
+.navbar{background:#fff;padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 4px rgba(0,0,0,.06);position:sticky;top:0;z-index:100}
+.navbar h1{font-size:17px;color:#333;font-weight:600;display:flex;align-items:center;gap:10px}
+.back-btn{padding:6px 14px;background:#f0f2f5;border:1px solid #e0e0e0;border-radius:6px;font-size:13px;color:#555;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:4px;transition:background .2s}
+.back-btn:hover{background:#e8e8e8}
+.main{max-width:1200px;margin:0 auto;padding:24px}
+.panel{background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.filter-bar{display:flex;flex-wrap:wrap;gap:10px;padding:14px 20px;border-bottom:1px solid #f0f0f0;background:#fafbff;align-items:flex-end}
+.filter-group{display:flex;flex-direction:column;gap:4px}
+.filter-group label{font-size:11px;color:#999;font-weight:500;letter-spacing:.3px}
+.filter-group select,.filter-group input{padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none;background:#fff;transition:border .2s}
+.filter-group select:focus,.filter-group input:focus{border-color:#14b8a6}
+.filter-group select{width:110px;cursor:pointer}
+.filter-group input[type="text"]{width:180px}
+.filter-actions{display:flex;gap:6px;align-items:flex-end;margin-left:auto}
+.filter-actions button{padding:7px 16px;border-radius:6px;font-size:13px;cursor:pointer;border:1px solid transparent;transition:all .15s}
+.filter-actions .btn-filter{background:#14b8a6;color:#fff;border-color:#14b8a6}
+.filter-actions .btn-filter:hover{background:#0d9488}
+.filter-actions .btn-reset{background:#fff;color:#666;border-color:#ddd}
+.filter-actions .btn-reset:hover{border-color:#999;color:#333}
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+thead{background:#fafafa}
+th{padding:12px 16px;text-align:left;font-size:13px;color:#999;font-weight:500;border-bottom:1px solid #f0f0f0;white-space:nowrap}
+td{padding:12px 16px;font-size:13px;border-bottom:1px solid #f5f5f5;white-space:nowrap}
+tr:hover td{background:#fafbff}
+.code-text{font-family:"SF Mono",Monaco,Consolas,monospace;font-weight:600;color:#333;letter-spacing:.5px;cursor:pointer}
+.code-text:hover{color:#14b8a6}
+.badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
+.badge-unused{background:#e0f2fe;color:#0284c7}
+.badge-used{background:#fef3c7;color:#d97706}
+.badge-converted{background:rgba(34,197,94,.12);color:#22c55e}
+.badge-not-converted{background:rgba(148,163,184,.12);color:#94a3b8}
+.badge-yearly{background:rgba(99,102,241,.1);color:#6366f1}
+.badge-lifetime{background:rgba(251,191,36,.12);color:#f59e0b}
+.pagination{display:flex;align-items:center;justify-content:center;gap:8px;padding:16px}
+.pagination button{padding:6px 12px;border:1px solid #ddd;border-radius:6px;background:#fff;font-size:13px;cursor:pointer;transition:all .15s}
+.pagination button:hover:not(:disabled){border-color:#14b8a6;color:#14b8a6}
+.pagination button:disabled{opacity:.4;cursor:not-allowed}
+.pagination button.active{background:#14b8a6;color:#fff;border-color:#14b8a6}
+.pagination span{font-size:13px;color:#999}
+.empty-row{text-align:center;padding:40px 16px;color:#ccc;font-size:14px}
+.toast{position:fixed;top:20px;left:50%;transform:translateX(-50%);padding:10px 24px;border-radius:8px;font-size:14px;font-weight:500;z-index:9999;transition:opacity .3s;pointer-events:none}
+.toast.success{background:#dcfce7;color:#16a34a}
+.toast.error{background:#fee2e2;color:#dc2626}
+.loading-mask{display:flex;align-items:center;justify-content:center;padding:60px;color:#999;font-size:14px}
+@media(max-width:768px){
+  .main{padding:12px}
+  .filter-bar{gap:8px;padding:10px 14px}
+  .filter-group select,.filter-group input{font-size:12px}
+  th,td{padding:10px 12px;font-size:12px}
+}
+</style>
+</head>
+<body>
+<nav class="navbar">
+  <h1>
+    <a href="/admin.html" class="back-btn">← 返回</a>
+    体验码转化跟踪
+  </h1>
+</nav>
+
+<div class="main">
+  <div class="panel">
+    <div class="filter-bar">
+      <div class="filter-group">
+        <label>状态</label>
+        <select id="filterStatus">
+          <option value="">全部</option>
+          <option value="unused">未使用</option>
+          <option value="used">已使用</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>转化</label>
+        <select id="filterConverted">
+          <option value="">全部</option>
+          <option value="yes">已转化</option>
+          <option value="no">未转化</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label>搜索</label>
+        <input type="text" id="filterKeyword" placeholder="搜索兑换码">
+      </div>
+      <div class="filter-actions">
+        <button class="btn-filter" onclick="currentPage=1;loadData()">筛选</button>
+        <button class="btn-reset" onclick="resetFilters()">重置</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>兑换码</th><th>状态</th><th>生成时间</th><th>使用时间</th><th>兑换用户</th><th>是否转化</th><th>转化类型</th>
+        </tr></thead>
+        <tbody id="tableBody">
+          <tr><td colspan="7" class="empty-row">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pagination" id="pagination"></div>
+  </div>
+</div>
+
+<script>
+const API_BASE = location.origin;
+const TOKEN_KEY = "admin_token";
+let currentPage = 1;
+const PAGE_SIZE = 20;
+
+function getToken() {
+  return localStorage.getItem(TOKEN_KEY) || "";
+}
+
+async function api(method, path, body) {
+  const opts = {
+    method,
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + getToken() },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(API_BASE + path, opts);
+  if (res.status === 401) { localStorage.removeItem(TOKEN_KEY); location.href = "/admin.html"; return; }
+  return res.json();
+}
+
+function escHtml(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+function fmtDate(v) {
+  if (!v) return "-";
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return "-";
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function showToast(msg, type) {
+  const el = document.createElement("div");
+  el.className = "toast " + (type || "success");
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 300); }, 2000);
+}
+
+const CONVERTED_LABELS = { yearly: "年费会员", lifetime: "永久会员" };
+
+async function loadData() {
+  const status = document.getElementById("filterStatus").value;
+  const converted = document.getElementById("filterConverted").value;
+  const keyword = document.getElementById("filterKeyword").value.trim();
+  const qs = new URLSearchParams({ page: currentPage, pageSize: PAGE_SIZE, status, converted, keyword }).toString();
+
+  try {
+    const res = await api("GET", "/api/admin/trial-codes?" + qs);
+    if (!res || !res.ok) {
+      document.getElementById("tableBody").innerHTML = '<tr><td colspan="7" class="empty-row">加载失败</td></tr>';
+      return;
+    }
+    renderTable(res.data);
+  } catch {
+    document.getElementById("tableBody").innerHTML = '<tr><td colspan="7" class="empty-row">加载失败</td></tr>';
+  }
+}
+
+function renderTable(data) {
+  const body = document.getElementById("tableBody");
+  if (!data.list || data.list.length === 0) {
+    body.innerHTML = '<tr><td colspan="7" class="empty-row">暂无数据</td></tr>';
+    renderPagination(data);
+    return;
+  }
+  body.innerHTML = data.list.map(r => {
+    const isUsed = r.status === "used";
+    const convertedBadge = !isUsed ? "-" : (r.converted
+      ? '<span class="badge badge-converted">已转化</span>'
+      : '<span class="badge badge-not-converted">未转化</span>');
+    const convertedType = !isUsed ? "-" : (r.convertedType
+      ? `<span class="badge badge-${r.convertedType === 'lifetime' ? 'lifetime' : 'yearly'}">${escHtml(CONVERTED_LABELS[r.convertedType] || r.convertedType)}</span>`
+      : "-");
+    return `<tr>
+      <td><span class="code-text" title="点击复制" onclick="navigator.clipboard.writeText('${r.code}').then(()=>showToast('已复制','success'))">${escHtml(r.code)}</span></td>
+      <td><span class="badge badge-${isUsed ? 'used' : 'unused'}">${isUsed ? '已使用' : '未使用'}</span></td>
+      <td style="font-size:12px;">${fmtDate(r.createdAt)}</td>
+      <td style="font-size:12px;">${fmtDate(r.redeemedAt)}</td>
+      <td style="font-size:12px;">${escHtml(r.redeemedUsername || '-')}</td>
+      <td>${convertedBadge}</td>
+      <td>${convertedType}</td>
+    </tr>`;
+  }).join("");
+  renderPagination(data);
+}
+
+function renderPagination(data) {
+  const el = document.getElementById("pagination");
+  const totalPages = Math.ceil(data.total / PAGE_SIZE) || 1;
+  if (totalPages <= 1 && data.total <= PAGE_SIZE) { el.innerHTML = `<span>共 ${data.total} 条</span>`; return; }
+  let html = `<button ${currentPage <= 1 ? 'disabled' : ''} onclick="goPage(${currentPage - 1})">上一页</button>`;
+  const start = Math.max(1, currentPage - 2);
+  const end = Math.min(totalPages, currentPage + 2);
+  if (start > 1) html += `<button onclick="goPage(1)">1</button>`;
+  if (start > 2) html += `<span>...</span>`;
+  for (let i = start; i <= end; i++) {
+    html += `<button class="${i === currentPage ? 'active' : ''}" onclick="goPage(${i})">${i}</button>`;
+  }
+  if (end < totalPages - 1) html += `<span>...</span>`;
+  if (end < totalPages) html += `<button onclick="goPage(${totalPages})">${totalPages}</button>`;
+  html += `<button ${currentPage >= totalPages ? 'disabled' : ''} onclick="goPage(${currentPage + 1})">下一页</button>`;
+  html += `<span>共 ${data.total} 条</span>`;
+  el.innerHTML = html;
+}
+
+function goPage(p) { currentPage = p; loadData(); }
+
+function resetFilters() {
+  document.getElementById("filterStatus").value = "";
+  document.getElementById("filterConverted").value = "";
+  document.getElementById("filterKeyword").value = "";
+  currentPage = 1;
+  loadData();
+}
+
+if (!getToken()) {
+  location.href = "/admin.html";
+} else {
+  loadData();
+}
+</script>
+</body>
+</html>

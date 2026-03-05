@@ -1,0 +1,5 @@
+node_modules/
+.env
+*.min.js
+*.min.css
+.DS_Store

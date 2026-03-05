@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>补豆商城</title>
+  <link rel="stylesheet" href="/css/shop.css?v=__BUILD_TAG__">
+  <style>
+    :root {
+      --primary: #6C5CE7;
+      --primary-light: #A29BFE;
+      --bg: #f5f5f5;
+      --card-bg: #fff;
+      --text: #333;
+      --text-secondary: #666;
+      --border: #eee;
+      --radius: 12px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1a1a2e;
+        --card-bg: #16213e;
+        --text: #e0e0e0;
+        --text-secondary: #a0a0a0;
+        --border: #2a2a4a;
+      }
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    .page { display: none; }
+    body[data-page] .page { display: none; }
+    /* Show the active page */
+    body[data-page="bead-brand"] #pageBeadBrand { display: block; }
+    body[data-page="bead-shop"] #pageBeadShop { display: block; }
+    body[data-page="bead-checkout"] #pageBeadCheckout { display: block; }
+    /* Toast */
+    .toast-wrap { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 10000; pointer-events: none; }
+    .toast-msg { background: rgba(0,0,0,.78); color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 14px; margin-bottom: 8px; text-align: center; animation: toastIn .3s; }
+    @keyframes toastIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+    /* Global loading overlay */
+    .global-loading { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.3); z-index: 9999; justify-content: center; align-items: center; }
+    .global-loading.active { display: flex; }
+    .global-loading-spinner { width: 36px; height: 36px; border: 3px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body data-page="bead-brand">
+  <div class="toast-wrap" id="toastWrap"></div>
+  <div class="global-loading" id="globalLoading"><div class="global-loading-spinner"></div></div>
+
+  <!-- ====== 补豆商城页面 ====== -->
+  <section class="page" id="pageBeadBrand" data-page="bead-brand">
+    <div class="brand-header">
+      <button class="brand-back" id="brandBack" type="button" aria-label="返回">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+      </button>
+      <h2 class="brand-title">补豆商城</h2>
+      <button class="inventory-shop-btn" id="brandQueryHistoryBtn" type="button">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        查询历史
+      </button>
+    </div>
+    <div class="brand-body">
+      <div class="brand-tip" id="brandTip" style="display:none">
+        <svg class="brand-tip-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 18h6"/><path d="M10 22h4"/>
+          <path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5C8.26 12.26 8.73 13.02 8.91 14"/>
+        </svg>
+        <span class="brand-tip-text">补豆商城是【AI豆仓】和【猫咪家拼豆】合作的快速补豆工具，欢迎大家使用～</span>
+      </div>
+      <h3 class="brand-subtitle">请选择使用的色号</h3>
+      <div class="brand-cards">
+        <button type="button" class="brand-card" id="brandMard">
+          <img src="/img/mard.webp" alt="MARD" class="brand-card-icon">
+          <span class="brand-card-name">MARD色号</span>
+        </button>
+        <button type="button" class="brand-card" id="brandCatshop">
+          <img src="/img/catshop.webp" alt="猫咪家" class="brand-card-icon">
+          <span class="brand-card-name">猫咪家色号</span>
+        </button>
+      </div>
+      <!-- 商城模式 Banner（默认隐藏，IS_SHOP_MODE 时显示） -->
+      <a class="shop-banner" id="shopBanner" href="https://aidoucang.cn" target="_blank" rel="noopener" style="display:none">
+        <!-- 动态光效层 -->
+        <div class="shop-banner-glow"></div>
+        <!-- 装饰性模糊圆圈 -->
+        <div class="shop-banner-circle shop-banner-circle-tr"></div>
+        <div class="shop-banner-circle shop-banner-circle-bl"></div>
+        <!-- 内容 -->
+        <div class="shop-banner-inner">
+          <div class="shop-banner-text">
+            <span class="shop-banner-badge">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg>
+              AI豆仓
+            </span>
+            <span class="shop-banner-title">AI豆仓</span>
+            <span class="shop-banner-desc">支持AI记录图纸消耗、批量操作库存、管理待拼图纸、发布作品集等高级功能</span>
+          </div>
+          <div class="shop-banner-arrow-btn">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg>
+          </div>
+        </div>
+        <!-- 底部光线 -->
+        <div class="shop-banner-bottom-line"></div>
+      </a>
+      <h3 class="brand-subtitle">补豆商城使用教程</h3>
+      <div class="brand-tutorial" id="brandTutorial">
+        <img src="/img/jiaocheng.webp" alt="补豆商城使用教程" style="width:100%;display:block">
+      </div>
+      <div class="brand-footer">
+        <div class="brand-footer-beian">
+          <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">京ICP备2025156587号-1</a>
+          <a href="https://beian.mps.gov.cn/#/query/webSearch?code=11011402055455" target="_blank" rel="noopener">京公网安备11011402055455号</a>
+        </div>
+        <div class="brand-footer-copy">猫咪家拼豆商城 &copy; 2026 by <a href="xhsdiscover://user/62bd8b41000000001902b891/" target="_blank" rel="noopener">AI豆仓</a></div>
+      </div>
+    </div>
+
+    <!-- 查询补豆清单 - 底部弹出 -->
+    <div class="bottom-sheet" id="queryOrderSheet">
+      <div class="bottom-sheet-overlay" id="queryOrderSheetOverlay"></div>
+      <div class="bottom-sheet-content">
+        <div class="bottom-sheet-header">
+          <h3>查询补豆清单</h3>
+        </div>
+        <div class="bottom-sheet-body">
+          <div class="sheet-field">
+            <input id="queryOrderInput" type="text" maxlength="64" placeholder="请输入补豆口令或淘宝订单号" autocomplete="off" />
+          </div>
+          <button class="sheet-btn-primary" id="queryOrderSubmit">查询</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="pageBeadShop" data-page="bead-shop">
+    <!-- 顶部栏 -->
+    <div class="bead-shop-header">
+      <button class="bead-shop-back" id="beadShopBack" type="button" aria-label="返回">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+      </button>
+      <h2 class="bead-shop-title">补豆商城</h2>
+      <button class="inventory-shop-btn" id="aiSmartBeadBtn" type="button">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>
+          <path d="M20 3v4"/><path d="M22 5h-4"/>
+          <path d="M4 17v2"/><path d="M5 18H3"/>
+        </svg>
+        AI智能补豆
+      </button>
+    </div>
+
+    <!-- 主体区域：左侧Tab + 右侧列表 -->
+    <div class="bead-shop-body">
+      <!-- 左侧色系筛选 -->
+      <aside class="bead-shop-sidebar" id="beadShopSidebar">
+        <button class="bead-shop-tab active" data-series="all" type="button">全部</button>
+        <!-- JS 动态生成其余色系 Tab -->
+      </aside>
+
+      <!-- 右侧色号列表 -->
+      <div class="bead-shop-list" id="beadShopList">
+        <!-- JS 动态渲染色号行 -->
+      </div>
+
+      <!-- 购物车半弹层（在body内，不盖住footer） -->
+      <div class="shop-cart-overlay" id="shopCartOverlay">
+        <div class="shop-cart-sheet" id="shopCartSheet">
+          <div class="shop-cart-sheet-header">
+            <button type="button" class="shop-cart-sheet-clear" id="shopCartSheetClear">清空购物车</button>
+            <span class="shop-cart-sheet-title">已选商品</span>
+            <button type="button" class="shop-cart-sheet-close" id="shopCartSheetClose">关闭</button>
+          </div>
+          <div class="shop-cart-sheet-list" id="shopCartSheetList">
+            <div class="bead-shop-empty">还没有加购商品</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部汇总栏 -->
+    <div class="bead-shop-footer">
+      <div class="bead-shop-cart-wrap">
+        <div class="bead-shop-cart" id="beadShopCartBtn">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/>
+            <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+          </svg>
+          <span class="bead-shop-badge" id="beadShopBadge" style="display:none">0</span>
+        </div>
+        <button type="button" class="bead-shop-detail-link" id="beadShopDetailBtn">查看明细</button>
+      </div>
+      <div class="bead-shop-total">
+        合计：<strong id="beadShopTotalWeight">0g</strong>
+      </div>
+      <span class="bead-shop-hint">10g≈1000粒</span>
+      <button class="bead-shop-next" id="beadShopNext" type="button" disabled>去结算</button>
+    </div>
+
+    <!-- AI智能补豆半弹层 -->
+    <div class="ai-smart-overlay" id="aiSmartOverlay">
+      <div class="ai-smart-sheet">
+        <div class="ai-smart-header">
+          <span class="ai-smart-title">AI智能补豆</span>
+          <button type="button" class="ai-smart-close" id="aiSmartClose">关闭</button>
+        </div>
+        <div class="ai-smart-tabs">
+          <div class="tab-nav">
+            <button type="button" class="tab-btn active" data-tab="ai-text">AI识文字</button>
+            <button type="button" class="tab-btn" data-tab="ai-image">AI识图</button>
+            <button type="button" class="tab-btn" data-tab="ai-csv">模板导入</button>
+          </div>
+        </div>
+        <div class="ai-smart-body">
+          <div class="checkout-alert" style="margin-bottom:12px">
+            <svg class="checkout-alert-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span class="checkout-alert-text">仅支持MARD色号</span>
+          </div>
+          <!-- Tab 1: AI识文字 -->
+          <div class="tab-panel active" id="aiTextPanel">
+            <p class="ai-smart-desc">请将补豆需求粘贴到下方输入框后点击立即识别，例如：<br>– A1 10g C21 20g H3 40g...<br>– A1 1000 C21 2000 H3 4000...</p>
+            <textarea id="aiTextInput" class="ai-smart-textarea" placeholder="粘贴补豆需求文本..." rows="6"></textarea>
+          </div>
+          <!-- Tab 2: AI识图 -->
+          <div class="tab-panel" id="aiImagePanel">
+            <p class="ai-smart-desc">请上传备忘录或聊天记录等包含补豆需求的图片，内容例如：<br>– A1 10g C21 20g H3 40g...<br>– A1 1000 C21 2000 H3 4000...</p>
+            <div class="file-upload">
+              <div class="file-upload-desc">支持 JPG/PNG，请确保数量单位一致，截掉无用区域</div>
+              <div class="file-upload-filename" id="aiImageName">未选择截图</div>
+              <button type="button" class="file-upload-btn" data-for="aiImageFile">选择截图</button>
+              <input type="file" id="aiImageFile" accept="image/*" style="display:none"/>
+            </div>
+          </div>
+          <!-- Tab 3: 模板导入 -->
+          <div class="tab-panel" id="aiCsvPanel">
+            <p class="ai-smart-desc">请编辑CSV模板后上传</p>
+            <div class="file-upload">
+              <div class="file-upload-desc">CSV 第一列=色号，第二列=补豆重量（克数g），示例：F11,10 或 F11,10g</div>
+              <div class="file-upload-filename" id="aiCsvName">未选择文件</div>
+              <div class="file-upload-actions">
+                <button type="button" class="file-upload-btn secondary" id="aiDownloadTemplate">下载模板</button>
+                <button type="button" class="file-upload-btn" data-for="aiCsvFile">选择 CSV 文件</button>
+              </div>
+              <input type="file" id="aiCsvFile" accept=".csv,.txt,text/csv,text/plain,application/vnd.ms-excel" style="display:none"/>
+            </div>
+          </div>
+        </div>
+        <div class="ai-smart-footer">
+          <button type="button" class="ai-smart-submit" id="aiSmartSubmit"><svg class="ai-smart-submit-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/></svg><span id="aiSmartSubmitText">立即AI识别</span></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI 识别提示弹窗 -->
+    <div class="bottom-sheet" id="aiWarningSheet">
+      <div class="bottom-sheet-overlay" id="aiWarningSheetOverlay"></div>
+      <div class="bottom-sheet-content">
+        <div class="bottom-sheet-header"><h3>AI 识别提示</h3></div>
+        <div class="bottom-sheet-body">
+          <div class="sheet-confirm-text" id="aiWarningText"></div>
+          <button class="sheet-btn-primary" id="aiWarningClose">我知道了</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 规格选择弹窗 -->
+    <div class="shop-spec-overlay" id="shopSpecOverlay">
+      <div class="shop-spec-dialog">
+        <div class="shop-spec-header">
+          <span class="shop-spec-title">选择重量</span>
+          <button type="button" class="shop-spec-close" id="shopSpecClose">关闭</button>
+        </div>
+        <div class="shop-spec-body" id="shopSpecBody">
+          <button type="button" class="shop-spec-opt" data-g="10">10g</button>
+          <button type="button" class="shop-spec-opt" data-g="20">20g</button>
+          <button type="button" class="shop-spec-opt" data-g="50">50g</button>
+          <button type="button" class="shop-spec-opt" data-g="100">100g</button>
+          <button type="button" class="shop-spec-opt" data-g="200">200g</button>
+          <button type="button" class="shop-spec-opt" data-g="500">500g</button>
+          <button type="button" class="shop-spec-opt" data-g="1000">1000g</button>
+          <button type="button" class="shop-spec-opt" data-g="2000">2000g</button>
+          <button type="button" class="shop-spec-opt" data-g="5000">5000g</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 一键加购规格选择弹窗 -->
+    <div class="shop-spec-overlay" id="bulkAddSpecOverlay">
+      <div class="shop-spec-dialog">
+        <div class="shop-spec-header">
+          <span class="shop-spec-title">选择重量（一键加购）</span>
+          <button type="button" class="shop-spec-close" id="bulkAddSpecClose">关闭</button>
+        </div>
+        <div class="shop-spec-body">
+          <button type="button" class="shop-spec-opt" data-g="10">10g</button>
+          <button type="button" class="shop-spec-opt" data-g="20">20g</button>
+          <button type="button" class="shop-spec-opt" data-g="50">50g</button>
+          <button type="button" class="shop-spec-opt" data-g="100">100g</button>
+          <button type="button" class="shop-spec-opt" data-g="200">200g</button>
+          <button type="button" class="shop-spec-opt" data-g="500">500g</button>
+          <button type="button" class="shop-spec-opt" data-g="1000">1000g</button>
+          <button type="button" class="shop-spec-opt" data-g="2000">2000g</button>
+          <button type="button" class="shop-spec-opt" data-g="5000">5000g</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="pageBeadCheckout" data-page="bead-checkout">
+    <div class="checkout-header">
+      <button class="checkout-back" id="checkoutBack" type="button" aria-label="返回">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+      </button>
+      <h2 class="checkout-title">补豆清单</h2>
+      <button type="button" class="inventory-shop-btn checkout-modify-btn" id="checkoutModifyBtn">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+        </svg>
+        修改清单
+      </button>
+    </div>
+
+    <div class="checkout-body">
+      <div class="checkout-info">
+        <div class="checkout-alert" id="checkoutTipText">
+          <svg class="checkout-alert-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span class="checkout-alert-text">请保存补豆口令并仔细确认色号与份数，核对无误后发送口令给店铺客服，快速提交补豆清单；如需修改请点击右上角【修改清单】，<strong>返回上一页会清空购物车。</strong></span>
+        </div>
+
+        <!-- 二维码 + 状态 -->
+        <div class="checkout-top-row">
+          <div class="checkout-status-card" id="checkoutStatusCard">
+            <div class="checkout-status-icon">
+              <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+            </div>
+            <div class="checkout-status-title" id="checkoutStatusTitle">当前状态：待客服确认</div>
+            <div class="checkout-status-sub" id="checkoutStatusSub">客服确认前可随时修改补豆清单</div>
+          </div>
+          <div class="checkout-qr-wrap">
+            <div class="checkout-qr" id="checkoutQR"></div>
+          </div>
+        </div>
+
+        <!-- 口令 + 复制 -->
+        <div class="checkout-code-row">
+          <span class="checkout-code-label">补豆口令：<strong id="checkoutCode">----</strong></span>
+          <button type="button" class="checkout-copy-btn" id="checkoutCopyCode">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            复制
+          </button>
+        </div>
+
+        <p class="checkout-tip" id="checkoutSubmitTime">最后提交时间：----</p>
+
+        <!-- 下单方案 -->
+        <div class="checkout-plan-card">
+          <div class="checkout-plan-header">
+            <div class="checkout-plan-title">下单方案</div>
+            <div class="checkout-plan-sub">请按以下规格和数量下单</div>
+          </div>
+          <div class="checkout-plan-specs" id="checkoutPlanSpecs">
+            <!-- JS 动态渲染 -->
+          </div>
+          <div class="checkout-plan-summary" id="checkoutPlanSummary"></div>
+        </div>
+
+      </div>
+
+      <!-- 明细列表 + 汇总 -->
+      <div class="checkout-detail-card">
+        <div class="checkout-matrix" id="checkoutMatrix">
+          <!-- JS 动态渲染 -->
+        </div>
+        <div class="checkout-stats">
+          <span class="checkout-stat-pill">总色号<strong id="checkoutColorCount">0</strong></span>
+          <span class="checkout-stat-pill">总重量<strong id="checkoutTotalWeight">0g</strong></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部按钮 -->
+    <div class="checkout-footer">
+      <button type="button" class="checkout-btn checkout-btn-download" id="checkoutDownload">保存完整清单</button>
+      <button type="button" class="checkout-btn checkout-btn-shop" id="checkoutGoShop">立即下单</button>
+    </div>
+  </section>
+
+  <script defer src="/js/shop-app.js?v=__BUILD_TAG__"></script>
+</body>
+</html>
