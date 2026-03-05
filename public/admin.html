@@ -648,6 +648,16 @@ function formatTimeLines(dt){
   return `<div class="time-line">${date}</div><div class="time-line">${time}</div>`;
 }
 
+function escapeHtml(value){
+  const str = value == null ? "" : String(value);
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 async function copyOrderCode(code){
   if(!code) return;
   try{
@@ -987,8 +997,9 @@ function renderTable(data){
     const confirmBtn = isPending
       ? `<button class="btn-sm danger" onclick="Admin.confirmOrder(${r.id})">确认订单</button>`
       : `<button class="btn-sm warning" onclick="Admin.confirmOrder(${r.id})">取消确认</button>`;
+    const safeTaobaoOrderNo = escapeHtml(r.taobaoOrderNo || "");
     const taobaoDisplay = r.taobaoOrderNo
-      ? `<div class="col-taobao" title="${r.taobaoOrderNo}">${r.taobaoOrderNo}</div>`
+      ? `<div class="col-taobao" title="${safeTaobaoOrderNo}">${safeTaobaoOrderNo}</div>`
       : `<span class="col-taobao empty">未填写</span>`;
     return `<tr>
       <td class="col-id">${r.id}</td>
@@ -1586,7 +1597,7 @@ async function mergeSearch(keyword){
       html += `<div class="merge-result-row${isSelected ? " selected" : ""}" data-id="${r.id}" onclick="Admin.toggleMergeRow(${r.id})">
         <input type="checkbox" ${isSelected ? "checked" : ""} onclick="event.stopPropagation();Admin.toggleMergeRow(${r.id})">
         <div class="merge-row-info">
-          <span class="merge-row-taobao" title="${r.taobaoOrderNo || ""}">${r.taobaoOrderNo || "未填写"}</span>
+          <span class="merge-row-taobao" title="${escapeHtml(r.taobaoOrderNo || "")}">${escapeHtml(r.taobaoOrderNo || "未填写")}</span>
           <span class="merge-row-parts">${totalParts}份</span>
         </div>
         <div class="merge-row-status">${statusBadge}</div>

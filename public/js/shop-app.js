@@ -28,9 +28,25 @@
   function hideGlobalLoading() { const el = document.getElementById("globalLoading"); if (el) el.classList.remove("active"); }
   function trackEvent() {}
 
-  async function apiGet(url) { const r = await fetch(url); return r.json(); }
-  async function apiPost(url, body) { const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); return r.json(); }
-  async function apiPostForm(url, fd) { const r = await fetch(url, { method: "POST", body: fd }); return r.json(); }
+  async function requestJson(url, options) {
+    const r = await fetch(url, options);
+    let payload = null;
+    try {
+      payload = await r.json();
+    } catch {
+      payload = null;
+    }
+    if (!r.ok) {
+      const err = new Error((payload && payload.message) || `HTTP ${r.status}`);
+      err.httpStatus = r.status;
+      err.payload = payload;
+      throw err;
+    }
+    return payload || {};
+  }
+  async function apiGet(url) { return requestJson(url); }
+  async function apiPost(url, body) { return requestJson(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
+  async function apiPostForm(url, fd) { return requestJson(url, { method: "POST", body: fd }); }
 
   function showPage(page, opts) {
     document.body.dataset.page = page;
@@ -472,8 +488,8 @@
         });
       }
 
-      // Tab 点击事件
-      sidebar.addEventListener("click", (e) => {
+      // Tab 点击事件（覆盖旧处理器，避免切换品牌后重复绑定）
+      sidebar.onclick = (e) => {
         const tab = e.target.closest(".bead-shop-tab");
         if(!tab) return;
         const series = tab.dataset.series;
@@ -485,7 +501,7 @@
 
         _beadShopActiveSeries = series;
         _renderShopList(series);
-      });
+      };
     }
 
     const SHOP_HOT_CODES = ["H1","H2","H7","E11","E16"];
@@ -1847,7 +1863,7 @@
       let savedCode = null;
       for(let i = 0; i <= MAX_RETRY; i++){
         try{
-          await apiPost("/api/shop/order", {
+          const saveRes = await apiPost("/api/shop/order", {
             code,
             items,
             totalQty,
@@ -1855,6 +1871,9 @@
             plan: planData,
             brandType: _shopBrandType,
           });
+          if (!saveRes || saveRes.ok !== true || !saveRes.id) {
+            throw new Error("订单保存未确认");
+          }
           savedCode = code;
           break;
         } catch(e){

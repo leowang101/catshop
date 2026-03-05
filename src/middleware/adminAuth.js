@@ -52,10 +52,31 @@ function createAdminAuth(opts) {
     }
   }, 5 * 60 * 1000).unref();
 
+  function normalizeIp(raw) {
+    if (!raw) return "";
+    const first = String(raw).split(",")[0].trim();
+    if (!first) return "";
+    return first.replace(/^::ffff:/, "");
+  }
+
+  function isLoopback(ip) {
+    return ip === "127.0.0.1" || ip === "::1" || ip === "localhost";
+  }
+
   function getClientIp(req) {
-    const xff = req.headers["x-forwarded-for"];
-    if (xff) return String(xff).split(",")[0].trim();
-    return req.socket?.remoteAddress || "unknown";
+    const remote = normalizeIp(req.socket?.remoteAddress || "");
+    const realIp = normalizeIp(req.headers["x-real-ip"] || "");
+    if (realIp) return realIp;
+    if (remote && !isLoopback(remote)) return remote;
+    const xff = String(req.headers["x-forwarded-for"] || "")
+      .split(",")
+      .map((s) => normalizeIp(s))
+      .filter(Boolean);
+    if (xff.length > 0) {
+      // Nginx 常见配置为 $proxy_add_x_forwarded_for，真实客户端通常在最后一位。
+      return xff[xff.length - 1];
+    }
+    return remote || "unknown";
   }
 
   function checkLoginRate(ip) {

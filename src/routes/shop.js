@@ -344,11 +344,14 @@ router.post("/api/shop/order", withHandler("shopOrder", async (req, res) => {
       return sendJson(res, 403, { ok: false, message: "客服已确认订单，无法修改" });
     }
     // pending 状态：更新订单内容
-    await safeQuery(
+    const [updateResult] = await safeQuery(
       `UPDATE shop_orders SET items_json = ?, plan_json = ?, total_qty = ?, color_count = ?, brand_type = ?, updated_at = NOW()
-       WHERE id = ?`,
+       WHERE id = ? AND status = 'pending'`,
       [itemsJson, planJson, totalQ, colorC, brandT, row.id]
     );
+    if (!updateResult || updateResult.affectedRows < 1) {
+      return sendJson(res, 403, { ok: false, message: "客服已确认订单，无法修改" });
+    }
     return sendJson(res, 200, { ok: true, id: row.id, updated: true });
   }
 
