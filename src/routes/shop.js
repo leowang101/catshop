@@ -25,6 +25,7 @@ const { PALETTE_ALL } = require("../utils/palette");
 const { extractJsonFromText } = require("../utils/helpers");
 
 const VALID_CODES = new Set(PALETTE_ALL.map(c => c.code.toUpperCase()));
+const ORDER_CODE_RE = /^[a-z0-9-]{1,64}$/i;
 
 const aiImageUpload = multer({
   storage: multer.memoryStorage(),
@@ -288,12 +289,15 @@ function parseItemStrings(items) {
  * - colorCount: number — 累计色号数
  */
 router.post("/api/shop/order", withHandler("shopOrder", async (req, res) => {
-  const { code, items, totalQty, colorCount, plan, brandType } = req.body || {};
+  const { code, items, plan, brandType } = req.body || {};
   const { vStr: _vStr, vArray: _vArr, vEnum: _vEnum } = require("../utils/validate");
 
   // 参数校验 — 口令
   const codeCheck = _vStr(code, { min: 1, max: 64, label: "补豆口令" });
   if (!codeCheck.ok) return sendJson(res, 400, { ok: false, message: codeCheck.message });
+  if (!ORDER_CODE_RE.test(codeCheck.value)) {
+    return sendJson(res, 400, { ok: false, message: "补豆口令格式无效" });
+  }
 
   // 参数校验 — 品牌类型
   const brandT = _vEnum(brandType, ["mard", "catshop"]).ok ? brandType : "mard";
@@ -303,16 +307,20 @@ router.post("/api/shop/order", withHandler("shopOrder", async (req, res) => {
   if (!itemsCheck.ok) return sendJson(res, 400, { ok: false, message: itemsCheck.message });
 
   // 校验每项（含色号合法性）
+  const normalizedItems = [];
   for (const item of items) {
     if (!item || typeof item.code !== "string" || !item.code.trim() || item.code.length > 10) {
       return sendJson(res, 400, { ok: false, message: "色号明细中存在无效色号" });
     }
-    if (!VALID_CODES.has(item.code.toUpperCase())) {
+    const normalizedCode = item.code.toUpperCase();
+    if (!VALID_CODES.has(normalizedCode)) {
       return sendJson(res, 400, { ok: false, message: `色号 ${item.code} 不在支持列表中` });
     }
-    if (typeof item.qty !== "number" || item.qty <= 0 || item.qty > 10000) {
+    const normalizedQty = Number(item.qty);
+    if (!Number.isInteger(normalizedQty) || normalizedQty <= 0 || normalizedQty > 10000) {
       return sendJson(res, 400, { ok: false, message: `色号 ${item.code} 的数量无效` });
     }
+    normalizedItems.push({ code: normalizedCode, qty: normalizedQty });
   }
 
   // 参数校验 — plan（可选，限制 JSON 大小）
@@ -326,9 +334,9 @@ router.post("/api/shop/order", withHandler("shopOrder", async (req, res) => {
   }
 
   const userId = null;
-  const itemsJson = JSON.stringify(items);
-  const totalQ = typeof totalQty === "number" ? totalQty : items.reduce((s, i) => s + i.qty, 0);
-  const colorC = typeof colorCount === "number" ? colorCount : items.length;
+  const itemsJson = JSON.stringify(normalizedItems);
+  const totalQ = normalizedItems.reduce((s, i) => s + i.qty, 0);
+  const colorC = normalizedItems.length;
   const trimmedCode = codeCheck.value;
 
   // 先检查是否已存在同口令订单

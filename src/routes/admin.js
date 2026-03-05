@@ -3,7 +3,7 @@
 const crypto = require("crypto");
 const express = require("express");
 const router = express.Router();
-const { safeQuery } = require("../db/pool");
+const { safeQuery, withTransaction } = require("../db/pool");
 const { sendJson } = require("../utils/respond");
 const { withHandler } = require("../utils/observability");
 const { ADMIN_TOKEN_MAX_AGE, DEFAULT_PAGE_SIZE } = require("../utils/constants");
@@ -310,39 +310,56 @@ router.put("/api/admin/orders/:id/taobao", _auth.requireAdmin, withHandler("admi
   const overwrite = !!(req.body || {}).overwrite;
   const force = !!(req.body || {}).force;
 
-  const [rows] = await safeQuery(
-    `SELECT id FROM shop_orders WHERE id = ? LIMIT 1`,
-    [id]
-  );
-  if (!rows || rows.length === 0) {
-    return sendJson(res, 404, { ok: false, message: "未找到该订单" });
-  }
+  const lockKey = `catshop:taobao:${no}`;
+  let response = { status: 200, body: { ok: true } };
 
-  // 检查是否已有其他订单使用相同的淘宝订单备注
-  const [dupRows] = await safeQuery(
-    `SELECT id FROM shop_orders WHERE taobao_order_no = ? AND id != ? LIMIT 1`,
-    [no, id]
-  );
-  const hasDuplicate = dupRows && dupRows.length > 0;
+  await withTransaction(async (conn) => {
+    const [lockRows] = await conn.query("SELECT GET_LOCK(?, 5) AS locked", [lockKey]);
+    const locked = Number(lockRows?.[0]?.locked) === 1;
+    if (!locked) {
+      response = { status: 409, body: { ok: false, message: "系统繁忙，请稍后重试" } };
+      return;
+    }
 
-  if (hasDuplicate && !overwrite && !force) {
-    return sendJson(res, 200, { ok: false, duplicateExist: true, message: "该淘宝订单备注已存在" });
-  }
+    try {
+      const [rows] = await conn.query(
+        `SELECT id FROM shop_orders WHERE id = ? LIMIT 1 FOR UPDATE`,
+        [id]
+      );
+      if (!rows || rows.length === 0) {
+        response = { status: 404, body: { ok: false, message: "未找到该订单" } };
+        return;
+      }
 
-  // 覆盖保存：清空其他记录的相同淘宝备注
-  if (overwrite && hasDuplicate) {
-    await safeQuery(
-      `UPDATE shop_orders SET taobao_order_no = NULL WHERE taobao_order_no = ? AND id != ?`,
-      [no, id]
-    );
-  }
+      const [dupRows] = await conn.query(
+        `SELECT id FROM shop_orders WHERE taobao_order_no = ? AND id != ? LIMIT 1 FOR UPDATE`,
+        [no, id]
+      );
+      const hasDuplicate = dupRows && dupRows.length > 0;
 
-  await safeQuery(
-    `UPDATE shop_orders SET taobao_order_no = ? WHERE id = ?`,
-    [no, id]
-  );
+      if (hasDuplicate && !overwrite && !force) {
+        response = { status: 200, body: { ok: false, duplicateExist: true, message: "该淘宝订单备注已存在" } };
+        return;
+      }
 
-  sendJson(res, 200, { ok: true });
+      if (overwrite && hasDuplicate) {
+        await conn.query(
+          `UPDATE shop_orders SET taobao_order_no = NULL WHERE taobao_order_no = ? AND id != ?`,
+          [no, id]
+        );
+      }
+
+      await conn.query(
+        `UPDATE shop_orders SET taobao_order_no = ? WHERE id = ?`,
+        [no, id]
+      );
+      response = { status: 200, body: { ok: true } };
+    } finally {
+      try { await conn.query("SELECT RELEASE_LOCK(?)", [lockKey]); } catch {}
+    }
+  });
+
+  sendJson(res, response.status, response.body);
 }));
 
 /**
@@ -475,6 +492,16 @@ function _partnerSign(method, path) {
   return `HMAC-SHA256 ${ts}.${sig}`;
 }
 
+async function _readUpstreamJson(resp) {
+  const raw = await resp.text();
+  if (!raw) return { ok: resp.ok };
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { ok: resp.ok, message: raw };
+  }
+}
+
 router.post("/api/admin/generate-trial-code", _auth.requireAdmin, withHandler("adminProxyGenerateTrialCode", async (req, res) => {
   if (!PARTNER_API_SECRET || !PARTNER_API_BASE_URL) {
     return sendJson(res, 503, { ok: false, message: "合作方 API 未配置" });
@@ -490,7 +517,7 @@ router.post("/api/admin/generate-trial-code", _auth.requireAdmin, withHandler("a
       body: JSON.stringify({ quantity: req.body?.quantity }),
       signal: AbortSignal.timeout(15000),
     });
-    const data = await resp.json();
+    const data = await _readUpstreamJson(resp);
     sendJson(res, resp.status, data);
   } catch (e) {
     logger.error({ error: e.message }, "partnerProxy generate-trial-code failed");
@@ -514,7 +541,7 @@ router.get("/api/admin/trial-codes", _auth.requireAdmin, withHandler("adminProxy
       headers: { "Authorization": _partnerSign("GET", apiPath) },
       signal: AbortSignal.timeout(15000),
     });
-    const data = await resp.json();
+    const data = await _readUpstreamJson(resp);
     sendJson(res, resp.status, data);
   } catch (e) {
     logger.error({ error: e.message }, "partnerProxy trial-codes failed");

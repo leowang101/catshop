@@ -66,7 +66,8 @@ function createAdminAuth(opts) {
   function getClientIp(req) {
     const remote = normalizeIp(req.socket?.remoteAddress || "");
     const realIp = normalizeIp(req.headers["x-real-ip"] || "");
-    if (realIp) return realIp;
+    // 仅当请求来自本机反向代理时，才信任代理注入的真实 IP。
+    if (realIp && isLoopback(remote)) return realIp;
     if (remote && !isLoopback(remote)) return remote;
     const xff = String(req.headers["x-forwarded-for"] || "")
       .split(",")

@@ -151,7 +151,7 @@ app.use((err, req, res, _next) => {
 async function startServer() {
   const { dbEnabled } = require("./db/pool");
   if (dbEnabled()) {
-    try { await ensureSchema(); } catch (e) { logger.error({ error: e.message }, "ensureSchema failed"); }
+    await ensureSchema();
   } else {
     logger.warn("DB not configured — running without database");
   }

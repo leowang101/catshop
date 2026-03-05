@@ -95,6 +95,7 @@
       if (!seriesSet.has(series)) { seriesSet.add(series); S.SERIES_ORDER.push(series); }
     });
   })();
+  const _VALID_CODE_SET = new Set(S.MASTER_CODES.map((c) => String(c).toUpperCase()));
 
     // ====== 补豆商城 ======
 
@@ -128,8 +129,22 @@
 
     const _SHOP_QTY_KEY = "beadShopQty";
     function _loadShopQty(){
-      try{ const d = JSON.parse(localStorage.getItem(_SHOP_QTY_KEY)); return d && typeof d === "object" ? d : {}; }
-      catch{ return {}; }
+      try{
+        const d = JSON.parse(localStorage.getItem(_SHOP_QTY_KEY));
+        if(!d || typeof d !== "object" || Array.isArray(d)) return {};
+        const out = {};
+        for(const [rawCode, rawQty] of Object.entries(d)){
+          const code = String(rawCode || "").trim().toUpperCase();
+          const qty = Number(rawQty);
+          if(!_VALID_CODE_SET.has(code)) continue;
+          if(!Number.isInteger(qty)) continue;
+          if(qty <= 0 || qty > 5000) continue;
+          out[code] = qty;
+        }
+        return out;
+      } catch{
+        return {};
+      }
     }
     function _saveShopQty(){ try{ localStorage.setItem(_SHOP_QTY_KEY, JSON.stringify(_beadShopQty)); }catch{} }
 
@@ -270,10 +285,12 @@
         const timeStr = _formatSubmitTime(item.createdAt);
         const row = document.createElement("div");
         row.style.cssText = "display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #f5f5f5;cursor:pointer;transition:background .15s";
+        const safeCode = escapeHtml(String(item.code || ""));
+        const safeMeta = escapeHtml(`${timeStr} · ${item.totalQty}g · ${item.colorCount}色`);
         row.innerHTML = `
           <div style="min-width:0;flex:1">
-            <div style="font-size:14px;font-weight:600;color:#333;font-family:monospace;letter-spacing:.5px">${item.code}</div>
-            <div style="font-size:12px;color:#999;margin-top:3px">${timeStr} · ${item.totalQty}g · ${item.colorCount}色</div>
+            <div style="font-size:14px;font-weight:600;color:#333;font-family:monospace;letter-spacing:.5px">${safeCode}</div>
+            <div style="font-size:12px;color:#999;margin-top:3px">${safeMeta}</div>
           </div>
           <div style="flex-shrink:0;margin-left:12px;display:flex;align-items:center;gap:8px">
             <span style="font-size:12px;font-weight:500;color:${statusColor}">${statusText}</span>
@@ -1822,14 +1839,15 @@
 
       // 修改模式：提交前先检查订单是否已被客服确认
       let code;
-      if(_modifyingOrderCode){
+      const isModifyFlow = !!_modifyingOrderCode;
+      if(isModifyFlow){
         code = _modifyingOrderCode;
-        _modifyingOrderCode = null;
-        _syncShopModifyUI();
         try{
           const chk = await apiGet("/api/shop/order/" + encodeURIComponent(code));
           if(chk.ok && chk.data && chk.data.status === "confirmed"){
             toast("客服已确认该订单，无法修改","error");
+            _modifyingOrderCode = null;
+            _syncShopModifyUI();
             _initCheckoutPage();
             const pageEl = document.getElementById("pageBeadCheckout");
             if(pageEl) pageEl.dataset.backTo = "bead-shop";
@@ -1887,7 +1905,7 @@
             _renderCheckoutUI(code, entries, "confirmed", new Date());
             return;
           }
-          if(e.httpStatus === 409 && i < MAX_RETRY){
+          if(e.httpStatus === 409 && i < MAX_RETRY && !isModifyFlow){
             code = _generateOrderCode();
           } else {
             hideGlobalLoading();
@@ -1897,6 +1915,10 @@
         }
       }
       hideGlobalLoading();
+      if(isModifyFlow){
+        _modifyingOrderCode = null;
+        _syncShopModifyUI();
+      }
 
       // 服务端保存成功，清空购物车
       const clearedCodes = Object.keys(_beadShopQty);
@@ -1935,11 +1957,12 @@
       if(!body || !page) return;
 
       toast("正在生成图片…","info");
+      let saves = null;
       try{
         await _loadHtml2Canvas();
 
         // 临时展开整个页面和滚动区域以完整截图
-        const saves = [
+        saves = [
           [page, "height", page.style.height],
           [page, "overflow", page.style.overflow],
           [body, "overflow", body.style.overflow],
@@ -1967,9 +1990,6 @@
           windowHeight: body.scrollHeight
         });
 
-        // 恢复样式
-        saves.forEach(([el, prop, val]) => { el.style[prop] = val; });
-
         const dataUrl = canvas.toDataURL("image/png");
 
         // 尝试直接下载（桌面端）
@@ -1988,6 +2008,10 @@
       }catch(e){
         console.error(e);
         toast("图片生成失败，请截图保存","error");
+      } finally {
+        if (saves) {
+          saves.forEach(([el, prop, val]) => { el.style[prop] = val; });
+        }
       }
     }
 
@@ -2079,15 +2103,17 @@
         const schemeUrl = "taobao://item.taobao.com/item.htm?id=958198082262";
         let hidden = false;
         const onBlur = () => { hidden = true; };
+        const onVisibilityChange = () => {
+          if(document.hidden) hidden = true;
+        };
         window.addEventListener("pagehide", onBlur);
         window.addEventListener("blur", onBlur);
-        document.addEventListener("visibilitychange", () => {
-          if(document.hidden) hidden = true;
-        });
+        document.addEventListener("visibilitychange", onVisibilityChange);
         window.location.href = schemeUrl;
         setTimeout(()=>{
           window.removeEventListener("pagehide", onBlur);
           window.removeEventListener("blur", onBlur);
+          document.removeEventListener("visibilitychange", onVisibilityChange);
           if(!hidden){
             window.location.href = webUrl;
           }
