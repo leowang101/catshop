@@ -73,6 +73,9 @@ if (SERVE_FRONTEND) {
     if (fs.existsSync(path.join(__dirname, "..", "public", "js", "shop-app.min.js"))) {
       out = out.replace(/\/js\/shop-app\.js\?/g, "/js/shop-app.min.js?");
     }
+    if (fs.existsSync(path.join(__dirname, "..", "public", "css", "base.min.css"))) {
+      out = out.replace(/\/css\/base\.css\?/g, "/css/base.min.css?");
+    }
     if (fs.existsSync(path.join(__dirname, "..", "public", "css", "shop.min.css"))) {
       out = out.replace(/\/css\/shop\.css\?/g, "/css/shop.min.css?");
     }

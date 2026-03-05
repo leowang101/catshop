@@ -9,7 +9,7 @@ const CleanCSS = require("clean-css");
 const PUBLIC_DIR = path.join(__dirname, "..", "public");
 
 const JS_FILES = ["js/shop-app.js"];
-const CSS_FILES = ["css/shop.css"];
+const CSS_FILES = ["css/base.css", "css/shop.css"];
 
 function formatSize(bytes) {
   if (bytes < 1024) return bytes + "B";
