@@ -270,12 +270,16 @@ body[data-page="bead-shop"] .app-main{
   height: 22px;
   border-radius: 50%;
   border: none;
+  padding: 0;
   cursor: pointer;
   font-size: 0;
   line-height: 1;
   transition: opacity .15s, transform .1s;
   color: #fff;
   touch-action: manipulation;
+  flex-shrink: 0;
+  -webkit-appearance: none;
+  appearance: none;
 }
 .bead-shop-btn::before{
   content: '';
