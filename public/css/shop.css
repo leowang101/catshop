@@ -537,6 +537,10 @@ body[data-page="bead-shop"] .app-main{
   flex-shrink: 0;
 }
 .ai-smart-tabs .tab-nav{
+  display: flex;
+  gap: 6px;
+  border-radius: 999px;
+  padding: 4px;
   background:
     linear-gradient(180deg, rgba(255,255,255,.9), rgba(255,255,255,.6)),
     rgba(148,163,184,.25);
@@ -546,6 +550,12 @@ body[data-page="bead-shop"] .app-main{
     0 4px 10px rgba(15,23,42,.08);
 }
 .ai-smart-tabs .tab-nav button{
+  flex: 1;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: .18s ease;
   color: rgba(15,23,42,.55);
   font-size: 12px;
   font-weight: 600;
