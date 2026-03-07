@@ -8,6 +8,11 @@ const { sendJson } = require("../utils/respond");
 const { withHandler } = require("../utils/observability");
 const { ADMIN_TOKEN_MAX_AGE, DEFAULT_PAGE_SIZE } = require("../utils/constants");
 const { createAdminAuth } = require("../middleware/adminAuth");
+const { logger } = require("../utils/logger");
+
+function escapeLike(str) {
+  return str.replace(/[%_\\]/g, ch => "\\" + ch);
+}
 
 const _auth = createAdminAuth({
   usernameEnv: "ADMIN_USERNAME",
@@ -100,8 +105,8 @@ router.get("/api/admin/stats", _auth.requireAdmin, withHandler("adminStats", asy
 router.get("/api/admin/orders", _auth.requireAdmin, withHandler("adminOrders", async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page, 10) || 1);
   const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || DEFAULT_PAGE_SIZE));
-  const keyword = (req.query.keyword || "").trim();           // 补豆口令搜索
-  const taobaoKeyword = (req.query.taobaoKeyword || "").trim(); // 淘宝备注搜索
+  const keyword = (req.query.keyword || "").trim().slice(0, 64);
+  const taobaoKeyword = (req.query.taobaoKeyword || "").trim().slice(0, 64);
   const status = (req.query.status || "").trim();              // pending / confirmed / ""
   const hasTaobao = (req.query.hasTaobao || "").trim();        // yes / no / ""
   const dateFrom = (req.query.dateFrom || "").trim();          // YYYY-MM-DD
@@ -120,12 +125,12 @@ router.get("/api/admin/orders", _auth.requireAdmin, withHandler("adminOrders", a
   }
 
   if (keyword) {
-    conditions.push("order_code LIKE ?");
-    params.push(`%${keyword}%`);
+    conditions.push("order_code LIKE ? ESCAPE '\\\\'");
+    params.push(`%${escapeLike(keyword)}%`);
   }
   if (taobaoKeyword) {
-    conditions.push("taobao_order_no LIKE ?");
-    params.push(`%${taobaoKeyword}%`);
+    conditions.push("taobao_order_no LIKE ? ESCAPE '\\\\'");
+    params.push(`%${escapeLike(taobaoKeyword)}%`);
   }
   if (status === "pending" || status === "confirmed") {
     conditions.push("status = ?");
@@ -171,8 +176,8 @@ router.get("/api/admin/orders", _auth.requireAdmin, withHandler("adminOrders", a
     taobaoOrderNo: r.taobao_order_no || "",
     brandType: r.brand_type || "mard",
     status: r.status || "pending",
-    items: (() => { try { return typeof r.items_json === "string" ? JSON.parse(r.items_json) : r.items_json; } catch { return []; } })(),
-    plan: (() => { try { return r.plan_json ? (typeof r.plan_json === "string" ? JSON.parse(r.plan_json) : r.plan_json) : null; } catch { return null; } })(),
+    items: (() => { try { return typeof r.items_json === "string" ? JSON.parse(r.items_json) : r.items_json; } catch (e) { logger.warn({ orderId: r.id, error: e.message }, "items_json parse failed"); return []; } })(),
+    plan: (() => { try { return r.plan_json ? (typeof r.plan_json === "string" ? JSON.parse(r.plan_json) : r.plan_json) : null; } catch (e) { logger.warn({ orderId: r.id, error: e.message }, "plan_json parse failed"); return null; } })(),
   }));
 
   sendJson(res, 200, {
@@ -201,9 +206,9 @@ router.get("/api/admin/orders/:id", _auth.requireAdmin, withHandler("adminOrderD
 
   const r = rows[0];
   let items = [];
-  try { items = typeof r.items_json === "string" ? JSON.parse(r.items_json) : r.items_json; } catch {}
+  try { items = typeof r.items_json === "string" ? JSON.parse(r.items_json) : r.items_json; } catch (e) { logger.warn({ orderId: r.id, error: e.message }, "items_json parse failed"); }
   let plan = null;
-  try { plan = r.plan_json ? (typeof r.plan_json === "string" ? JSON.parse(r.plan_json) : r.plan_json) : null; } catch {}
+  try { plan = r.plan_json ? (typeof r.plan_json === "string" ? JSON.parse(r.plan_json) : r.plan_json) : null; } catch (e) { logger.warn({ orderId: r.id, error: e.message }, "plan_json parse failed"); }
 
   sendJson(res, 200, {
     ok: true,
@@ -419,9 +424,9 @@ router.get("/api/admin/spec-config", _auth.requireAdmin, withHandler("adminSpecC
   const [rows] = await safeQuery(
     "SELECT config_value FROM shop_config WHERE config_key = 'available_specs' LIMIT 1"
   );
-  let specs = { 20: true, 50: true, 100: true }; // 默认全开
+  let specs = { 20: true, 50: true, 100: true };
   if (rows && rows[0]) {
-    try { specs = JSON.parse(rows[0].config_value); } catch {}
+    try { specs = JSON.parse(rows[0].config_value); } catch (e) { logger.warn({ key: "available_specs", error: e.message }, "config parse failed"); }
   }
   sendJson(res, 200, { ok: true, data: specs });
 }));
@@ -456,9 +461,9 @@ router.get("/api/admin/disabled-codes", _auth.requireAdmin, withHandler("adminDi
   const [rows] = await safeQuery(
     "SELECT config_value FROM shop_config WHERE config_key = 'disabled_codes' LIMIT 1"
   );
-  let codes = []; // 默认全部上架
+  let codes = [];
   if (rows && rows[0]) {
-    try { codes = JSON.parse(rows[0].config_value); } catch {}
+    try { codes = JSON.parse(rows[0].config_value); } catch (e) { logger.warn({ key: "disabled_codes", error: e.message }, "config parse failed"); }
   }
   sendJson(res, 200, { ok: true, data: Array.isArray(codes) ? codes : [] });
 }));
@@ -484,7 +489,6 @@ router.put("/api/admin/disabled-codes", _auth.requireAdmin, withHandler("adminDi
 // ====== 试用码代理（转发到主站合作方 API） ======
 
 const { PARTNER_API_SECRET, PARTNER_API_BASE_URL } = require("../utils/constants");
-const { logger } = require("../utils/logger");
 
 function _partnerSign(method, path) {
   const ts = String(Date.now());

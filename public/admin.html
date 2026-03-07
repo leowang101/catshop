@@ -756,7 +756,7 @@ async function loadStats(){
       document.getElementById("statPendingOrders").textContent = d.pendingOrders;
       document.getElementById("statTotalOrders").textContent = d.totalOrders;
     }
-  }catch{}
+  }catch(e){ console.error("loadStats failed", e); }
 }
 
 // ====== 规格配置 ======
@@ -769,7 +769,7 @@ async function loadSpecConfig(){
       document.getElementById("specToggle50").checked = !!specs[50];
       document.getElementById("specToggle100").checked = !!specs[100];
     }
-  }catch{}
+  }catch(e){ console.error("loadSpecConfig failed", e); }
 }
 
 async function saveSpecConfig(){
@@ -982,7 +982,7 @@ async function loadOrders(page, filters){
     if(res.ok){
       renderTable(res.data);
     }
-  }catch{}
+  }catch(e){ console.error("loadOrders failed", e); showToast("加载订单失败","error"); }
 }
 
 function renderTable(data){
@@ -1620,6 +1620,7 @@ async function mergeSearch(keyword){
     });
     container.innerHTML = html;
   } catch(e) {
+    console.error("mergeSearch failed", e);
     container.innerHTML = '<div class="merge-empty">搜索出错</div>';
   }
 }

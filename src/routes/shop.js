@@ -429,9 +429,9 @@ router.get("/api/shop/order/:code", withHandler("shopOrderQuery", async (req, re
 
   const row = rows[0];
   let items = [];
-  try { items = typeof row.items_json === "string" ? JSON.parse(row.items_json) : row.items_json; } catch (e) {}
+  try { items = typeof row.items_json === "string" ? JSON.parse(row.items_json) : row.items_json; } catch (e) { logger.warn({ orderId: row.id, error: e.message }, "items_json parse failed"); }
   let plan = null;
-  try { plan = row.plan_json ? (typeof row.plan_json === "string" ? JSON.parse(row.plan_json) : row.plan_json) : null; } catch (e) {}
+  try { plan = row.plan_json ? (typeof row.plan_json === "string" ? JSON.parse(row.plan_json) : row.plan_json) : null; } catch (e) { logger.warn({ orderId: row.id, error: e.message }, "plan_json parse failed"); }
 
   sendJson(res, 200, {
     ok: true,
@@ -497,7 +497,7 @@ router.post("/api/shop/ai-text", withHandler("shopAiText", async (req, res) => {
     }
 
     let data = null;
-    try { data = JSON.parse(raw); } catch {}
+    try { data = JSON.parse(raw); } catch (e) { logger.warn({ error: e.message, rawSnippet: raw.slice(0, 200) }, "ai-text response parse failed"); }
     const textOut = data?.choices?.[0]?.message?.content ?? raw;
 
     const parsed = extractJsonFromText(textOut);
@@ -629,7 +629,7 @@ router.get("/api/shop/spec-config", withHandler("shopSpecConfig", async (req, re
   );
   let specs = { 20: true, 50: true, 100: true };
   if (rows && rows[0]) {
-    try { specs = JSON.parse(rows[0].config_value); } catch {}
+    try { specs = JSON.parse(rows[0].config_value); } catch (e) { logger.warn({ key: "available_specs", error: e.message }, "config parse failed"); }
   }
   sendJson(res, 200, { ok: true, data: specs });
 }));
@@ -644,7 +644,7 @@ router.get("/api/shop/disabled-codes", withHandler("shopDisabledCodes", async (r
   );
   let codes = [];
   if (rows && rows[0]) {
-    try { codes = JSON.parse(rows[0].config_value); } catch {}
+    try { codes = JSON.parse(rows[0].config_value); } catch (e) { logger.warn({ key: "disabled_codes", error: e.message }, "config parse failed"); }
   }
   sendJson(res, 200, { ok: true, data: Array.isArray(codes) ? codes : [] });
 }));
