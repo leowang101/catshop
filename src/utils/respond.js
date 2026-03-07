@@ -13,9 +13,6 @@ function sendJson(res, status, obj) {
 const _DEFAULT_ORIGINS = [
   "https://shopping.aidoucang.cn",
   "https://admin-shopping.aidoucang.cn",
-  "https://shopping.leobeads.xyz",
-  "https://admin-shopping.leobeads.xyz",
-  "https://shop-admin.leobeads.xyz",
 ];
 
 const ALLOWED_ORIGINS = new Set(
