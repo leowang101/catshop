@@ -159,7 +159,7 @@ router.get("/api/admin/orders", _auth.requireAdmin, withHandler("adminOrders", a
   const total = countRows[0]?.total || 0;
 
   const [rows] = await safeQuery(
-    `SELECT id, order_code, created_at, updated_at, color_count, total_qty, items_json, plan_json, taobao_order_no, brand_type, status
+    `SELECT id, order_code, created_at, updated_at, color_count, total_qty, items_json, plan_json, taobao_order_no, brand_type, status, download_count
      FROM shop_orders ${where}
      ORDER BY created_at DESC
      LIMIT ? OFFSET ?`,
@@ -176,6 +176,7 @@ router.get("/api/admin/orders", _auth.requireAdmin, withHandler("adminOrders", a
     taobaoOrderNo: r.taobao_order_no || "",
     brandType: r.brand_type || "mard",
     status: r.status || "pending",
+    downloadCount: r.download_count || 0,
     items: (() => { try { return typeof r.items_json === "string" ? JSON.parse(r.items_json) : r.items_json; } catch (e) { logger.warn({ orderId: r.id, error: e.message }, "items_json parse failed"); return []; } })(),
     plan: (() => { try { return r.plan_json ? (typeof r.plan_json === "string" ? JSON.parse(r.plan_json) : r.plan_json) : null; } catch (e) { logger.warn({ orderId: r.id, error: e.message }, "plan_json parse failed"); return null; } })(),
   }));
@@ -195,7 +196,7 @@ router.get("/api/admin/orders/:id", _auth.requireAdmin, withHandler("adminOrderD
   if (!id) return sendJson(res, 400, { ok: false, message: "无效ID" });
 
   const [rows] = await safeQuery(
-    `SELECT id, order_code, created_at, updated_at, color_count, total_qty, items_json, plan_json, taobao_order_no, brand_type, status
+    `SELECT id, order_code, created_at, updated_at, color_count, total_qty, items_json, plan_json, taobao_order_no, brand_type, status, download_count
      FROM shop_orders WHERE id = ? LIMIT 1`,
     [id]
   );
@@ -222,6 +223,7 @@ router.get("/api/admin/orders/:id", _auth.requireAdmin, withHandler("adminOrderD
       taobaoOrderNo: r.taobao_order_no || "",
       brandType: r.brand_type || "mard",
       status: r.status || "pending",
+      downloadCount: r.download_count || 0,
       items,
       plan,
     },
@@ -414,6 +416,26 @@ router.post("/api/admin/orders/:id/duplicate", _auth.requireAdmin, withHandler("
       throw e;
     }
   }
+}));
+
+/**
+ * PUT /api/admin/orders/:id/csv-download
+ * 记录一次 CSV 下载，download_count + 1
+ */
+router.put("/api/admin/orders/:id/csv-download", _auth.requireAdmin, withHandler("adminOrderCsvDownload", async (req, res) => {
+  const { vInt } = require("../utils/validate");
+  const idCheck = vInt(req.params.id, { min: 1, label: "订单ID" });
+  if (!idCheck.ok) return sendJson(res, 400, { ok: false, message: idCheck.message });
+  const id = idCheck.value;
+
+  const [result] = await safeQuery(
+    `UPDATE shop_orders SET download_count = download_count + 1 WHERE id = ?`,
+    [id]
+  );
+  if (!result || result.affectedRows === 0) {
+    return sendJson(res, 404, { ok: false, message: "未找到该订单" });
+  }
+  sendJson(res, 200, { ok: true });
 }));
 
 /**

@@ -42,6 +42,15 @@ async function ensureSchema() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  // Add download_count column (idempotent)
+  try {
+    await safeQuery(`ALTER TABLE shop_orders ADD COLUMN download_count INT NOT NULL DEFAULT 0`);
+  } catch (e) {
+    if (!e.message.includes("Duplicate column")) {
+      logger.warn({ error: e.message }, "ALTER TABLE add download_count");
+    }
+  }
+
   // Seed catshop_mapping
   const entries = Object.entries(MARD_TO_CATSHOP);
   if (entries.length > 0) {

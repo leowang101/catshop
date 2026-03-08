@@ -402,6 +402,7 @@ tr:hover td{background:#fafbff}
               <th class="col-time">最后更新时间</th>
               <th style="text-align:center">总重量</th>
               <th style="text-align:center">总价格</th>
+              <th style="text-align:center">下载次数</th>
               <th style="text-align:center">状态</th>
               <th class="col-actions-cell">操作</th>
             </tr>
@@ -990,7 +991,7 @@ function renderTable(data){
   const tbody = document.getElementById("orderTbody");
 
   if(!list || list.length === 0){
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-row">暂无数据</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="empty-row">暂无数据</td></tr>';
     document.getElementById("pagination").innerHTML = "";
     return;
   }
@@ -1015,7 +1016,7 @@ function renderTable(data){
     const taobaoDisplay = r.taobaoOrderNo
       ? `<div class="col-taobao" title="${safeTaobaoOrderNo}">${safeTaobaoOrderNo}</div>`
       : `<span class="col-taobao empty">未填写</span>`;
-    return `<tr>
+    return `<tr data-order-id="${r.id}">
       <td class="col-id">${r.id}</td>
       <td class="col-code">
         <div class="code-cell">
@@ -1032,6 +1033,7 @@ function renderTable(data){
       <td class="col-time">${formatTimeLines(r.updatedAt || r.createdAt)}</td>
       <td class="col-num">${r.totalQty}g</td>
       <td class="col-num" style="color:#e67e22;font-weight:600">¥${totalPrice.toFixed(1)}</td>
+      <td class="col-num">${r.downloadCount || 0}</td>
       <td class="col-num">${statusBadge}</td>
       <td class="col-actions-cell"><div class="col-actions">
         <button class="btn-sm primary" onclick="Admin.showDetail(${r.id})">查看明细</button>
@@ -1513,6 +1515,14 @@ function downloadCSV(id){
   link.click();
   URL.revokeObjectURL(link.href);
   showToast("CSV已下载","success");
+
+  api("PUT", `/api/admin/orders/${id}/csv-download`).then(res => {
+    if(res.ok && ordersCache[id]){
+      ordersCache[id].downloadCount = (ordersCache[id].downloadCount || 0) + 1;
+      const row = document.querySelector(`#orderTbody tr[data-order-id="${id}"]`);
+      if(row) row.querySelectorAll("td")[6].textContent = ordersCache[id].downloadCount;
+    }
+  }).catch(() => {});
 }
 
 // ====== 合并导出 ======
