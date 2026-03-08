@@ -94,6 +94,8 @@ tr:hover td{background:#fafbff}
 .icon-btn svg{width:14px;height:14px;stroke:currentColor}
 .icon-btn:hover{border-color:#667eea;color:#667eea}
 .col-num{text-align:center;font-weight:600}
+.download-count-btn{border:none;background:none;padding:0;margin:0;color:#667eea;font:inherit;font-weight:700;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.download-count-btn:hover{color:#4f46e5}
 .col-actions-cell{width:220px;max-width:220px}
 .col-actions{display:flex;gap:6px;flex-wrap:wrap}
 .btn-sm{padding:5px 10px;border-radius:5px;font-size:12px;cursor:pointer;border:1px solid #ddd;background:#fff;transition:all .15s;white-space:nowrap}
@@ -143,6 +145,18 @@ tr:hover td{background:#fafbff}
 .modal-footer button{padding:8px 20px;background:#667eea;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer}
 .modal-footer-center{justify-content:center;gap:16px}
 .modal-action-btn{flex:0 0 160px;text-align:center}
+.download-logs-modal .modal{width:720px}
+.download-logs-summary{display:flex;gap:12px;margin-bottom:12px}
+.download-logs-summary .summary-item{flex:1;padding:10px 12px;border-radius:8px;background:#f8f9ff;font-size:13px;color:#666}
+.download-logs-summary .summary-item strong{color:#111;margin-left:4px}
+.download-logs-legacy{margin-bottom:12px;padding:10px 12px;border-radius:8px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:12px;line-height:1.6}
+.download-logs-table{table-layout:fixed}
+.download-logs-table th:nth-child(1),.download-logs-table td:nth-child(1){width:170px}
+.download-logs-table th:nth-child(2),.download-logs-table td:nth-child(2){width:100px;text-align:center}
+.download-logs-table td:nth-child(3){white-space:normal;line-height:1.6;word-break:break-word}
+.download-method-badge{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600}
+.download-method-badge.single{background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe}
+.download-method-badge.merge{background:#f5f3ff;color:#7c3aed;border:1px solid #ddd6fe}
 
 /* ====== 设置按钮 ====== */
 .settings-btn{padding:6px 14px;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;background:#fff;color:#374151;cursor:pointer;transition:background .15s}
@@ -439,6 +453,17 @@ tr:hover td{background:#fafbff}
   </div>
 </div>
 
+<!-- 下载记录弹窗 -->
+<div class="modal-overlay download-logs-modal" id="downloadLogsModal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="downloadLogsTitle">下载记录</h3>
+      <button class="modal-close-x" id="downloadLogsCloseBtn" type="button" aria-label="关闭">&times;</button>
+    </div>
+    <div class="modal-body" id="downloadLogsBody"></div>
+  </div>
+</div>
+
 <!-- 淘宝备注弹窗 -->
 <div class="modal-overlay taobao-modal" id="taobaoModal">
   <div class="modal">
@@ -709,6 +734,100 @@ async function api(method, path, body){
     throw new Error("登录已失效");
   }
   return json;
+}
+
+function renderDownloadCountContent(id, count){
+  const num = Number(count) || 0;
+  if(num <= 0) return "0";
+  return `<button type="button" class="download-count-btn" onclick="Admin.openDownloadLogs(${id})">${num}</button>`;
+}
+
+function updateDownloadCountCell(id, count){
+  const row = document.querySelector(`#orderTbody tr[data-order-id="${id}"]`);
+  const cell = row?.querySelector('[data-col="download-count"]');
+  if(cell) cell.innerHTML = renderDownloadCountContent(id, count);
+}
+
+function applyUpdatedDownloadCounts(updatedCounts){
+  if(!updatedCounts || typeof updatedCounts !== "object") return;
+  Object.entries(updatedCounts).forEach(([idRaw, countRaw]) => {
+    const id = Number(idRaw);
+    const count = Number(countRaw) || 0;
+    if(!Number.isInteger(id) || id <= 0) return;
+    if(ordersCache[id]) ordersCache[id].downloadCount = count;
+    if(typeof mergeOrdersCache !== "undefined" && mergeOrdersCache[id]) mergeOrdersCache[id].downloadCount = count;
+    updateDownloadCountCell(id, count);
+  });
+}
+
+async function recordCsvDownload(orderIds, method){
+  const res = await api("POST", "/api/admin/csv-download", { orderIds, method });
+  if(!res.ok) throw new Error(res.message || "下载记录保存失败");
+  applyUpdatedDownloadCounts(res.data?.updatedCounts);
+  return res;
+}
+
+function closeDownloadLogsModal(){
+  document.getElementById("downloadLogsModal").classList.remove("active");
+}
+
+async function openDownloadLogs(id){
+  const modal = document.getElementById("downloadLogsModal");
+  const body = document.getElementById("downloadLogsBody");
+  const title = document.getElementById("downloadLogsTitle");
+  const fallbackCode = ordersCache[id]?.orderCode || `#${id}`;
+  title.textContent = `下载记录 · ${fallbackCode}`;
+  body.innerHTML = '<div class="stock-loading">加载中...</div>';
+  modal.classList.add("active");
+
+  try{
+    const res = await api("GET", `/api/admin/orders/${id}/download-logs`);
+    if(!res.ok) throw new Error(res.message || "加载失败");
+
+    const data = res.data || {};
+    const logs = Array.isArray(data.list) ? data.list : [];
+    title.textContent = `下载记录 · ${data.orderCode || fallbackCode}`;
+
+    const summaryHtml = `<div class="download-logs-summary">
+      <div class="summary-item">累计下载次数<strong>${Number(data.totalCount) || 0}</strong></div>
+      <div class="summary-item">可展示明细<strong>${Number(data.loggedCount) || 0}</strong></div>
+    </div>`;
+
+    const legacyHintHtml = data.hasLegacyGap
+      ? `<div class="download-logs-legacy">当前仅展示新版本上线后的下载明细，较早的历史下载只计入次数，不显示具体记录。</div>`
+      : "";
+
+    const rowsHtml = logs.length > 0
+      ? logs.map(log => {
+          const method = log.method === "merge" ? "merge" : "single";
+          const relatedCodes = Array.isArray(log.relatedOrderCodes) ? log.relatedOrderCodes : [];
+          const note = method === "merge" && relatedCodes.length > 0
+            ? `与 ${relatedCodes.map(escapeHtml).join("、")} 一起导出`
+            : "-";
+          const methodLabel = method === "merge" ? "合并下载" : "单独下载";
+          return `<tr>
+            <td>${formatTime(log.downloadedAt)}</td>
+            <td><span class="download-method-badge ${method}">${methodLabel}</span></td>
+            <td>${note}</td>
+          </tr>`;
+        }).join("")
+      : `<tr><td colspan="3" class="empty-row">暂无可展示的下载记录</td></tr>`;
+
+    body.innerHTML = `${summaryHtml}${legacyHintHtml}
+      <table class="download-logs-table">
+        <thead>
+          <tr>
+            <th>下载时间</th>
+            <th>下载方式</th>
+            <th>备注</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>`;
+  }catch(e){
+    body.innerHTML = '<div class="empty-row">加载下载记录失败</div>';
+    showToast("加载下载记录失败","error");
+  }
 }
 
 // ====== 页面切换 ======
@@ -1033,7 +1152,7 @@ function renderTable(data){
       <td class="col-time">${formatTimeLines(r.updatedAt || r.createdAt)}</td>
       <td class="col-num">${r.totalQty}g</td>
       <td class="col-num" style="color:#e67e22;font-weight:600">¥${totalPrice.toFixed(1)}</td>
-      <td class="col-num">${r.downloadCount || 0}</td>
+      <td class="col-num" data-col="download-count">${renderDownloadCountContent(r.id, r.downloadCount)}</td>
       <td class="col-num">${statusBadge}</td>
       <td class="col-actions-cell"><div class="col-actions">
         <button class="btn-sm primary" onclick="Admin.showDetail(${r.id})">查看明细</button>
@@ -1474,7 +1593,7 @@ function _csvSort(a, b){
   // 底部色号：按MARD色号自然排序
   return sortCodes(a.code, b.code);
 }
-function downloadCSV(id){
+async function downloadCSV(id){
   const order = ordersCache[id];
   if(!order){ showToast("数据未找到","error"); return; }
   const plan = getOrderPlan(order);
@@ -1515,14 +1634,11 @@ function downloadCSV(id){
   link.click();
   URL.revokeObjectURL(link.href);
   showToast("CSV已下载","success");
-
-  api("PUT", `/api/admin/orders/${id}/csv-download`).then(res => {
-    if(res.ok && ordersCache[id]){
-      ordersCache[id].downloadCount = (ordersCache[id].downloadCount || 0) + 1;
-      const row = document.querySelector(`#orderTbody tr[data-order-id="${id}"]`);
-      if(row) row.querySelectorAll("td")[6].textContent = ordersCache[id].downloadCount;
-    }
-  }).catch(() => {});
+  try{
+    await recordCsvDownload([id], "single");
+  }catch(e){
+    showToast("下载记录保存失败","error");
+  }
 }
 
 // ====== 合并导出 ======
@@ -1635,7 +1751,7 @@ async function mergeSearch(keyword){
   }
 }
 
-function doMergeExport(){
+async function doMergeExport(){
   if(mergeSelectedIds.size < 2){
     showToast("请至少选择2条订单","error");
     return;
@@ -1705,6 +1821,11 @@ function doMergeExport(){
   link.click();
   URL.revokeObjectURL(link.href);
   showToast("合并CSV已下载","success");
+  try{
+    await recordCsvDownload(selectedOrders.map(order => order.id), "merge");
+  }catch(e){
+    showToast("下载记录保存失败","error");
+  }
   closeMergeExportModal();
 }
 
@@ -1795,6 +1916,10 @@ function init(){
   document.getElementById("modalCloseBtn").addEventListener("click", ()=>{ document.getElementById("detailModal").classList.remove("active"); });
   document.getElementById("detailModal").addEventListener("click", e => {
     if(e.target === document.getElementById("detailModal")) document.getElementById("detailModal").classList.remove("active");
+  });
+  document.getElementById("downloadLogsCloseBtn").addEventListener("click", closeDownloadLogsModal);
+  document.getElementById("downloadLogsModal").addEventListener("click", e => {
+    if(e.target === document.getElementById("downloadLogsModal")) closeDownloadLogsModal();
   });
   // 明细弹窗-下载CSV
   document.getElementById("modalCsvBtn").addEventListener("click", ()=>{ if(_detailOrderId) downloadCSV(_detailOrderId); });
@@ -2065,7 +2190,7 @@ document.getElementById("trialCopyAllBtn").addEventListener("click", () => {
   if (text) navigator.clipboard.writeText(text).then(() => showToast("已复制全部体验码", "success"));
 });
 
-window.Admin = { showDetail, downloadCSV, goPage, confirmOrder, editTaobao, copyOrderCode, copyOrderCodeEncoded, toggleMergeRow, duplicateFromList, _toast: showToast };
+window.Admin = { showDetail, downloadCSV, goPage, confirmOrder, editTaobao, copyOrderCode, copyOrderCodeEncoded, toggleMergeRow, duplicateFromList, openDownloadLogs, _toast: showToast };
 init();
 
 })();

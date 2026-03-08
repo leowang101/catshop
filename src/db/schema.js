@@ -42,6 +42,17 @@ async function ensureSchema() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
+  await safeQuery(`
+    CREATE TABLE IF NOT EXISTS shop_download_logs (
+      id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      order_id BIGINT NOT NULL,
+      method ENUM('single','merge') NOT NULL,
+      related_order_ids_json JSON NULL,
+      downloaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_shop_download_logs_order_time (order_id, downloaded_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
   // Add download_count column (idempotent)
   try {
     await safeQuery(`ALTER TABLE shop_orders ADD COLUMN download_count INT NOT NULL DEFAULT 0`);

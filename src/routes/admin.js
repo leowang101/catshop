@@ -33,6 +33,68 @@ function generateOrderCode() {
   return `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}-${raw.slice(12, 16)}`;
 }
 
+function parseRelatedOrderIds(raw) {
+  if (raw === null || raw === undefined || raw === "") return [];
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    if (!Array.isArray(parsed)) return [];
+    const seen = new Set();
+    const ids = [];
+    for (const item of parsed) {
+      const id = Number(item);
+      if (Number.isInteger(id) && id > 0 && !seen.has(id)) {
+        seen.add(id);
+        ids.push(id);
+      }
+    }
+    return ids;
+  } catch (e) {
+    logger.warn({ error: e.message }, "parse related_order_ids_json failed");
+    return [];
+  }
+}
+
+async function recordCsvDownloads(conn, orderIds, method) {
+  const placeholders = orderIds.map(() => "?").join(",");
+  const [rows] = await conn.query(
+    `SELECT id FROM shop_orders WHERE id IN (${placeholders}) FOR UPDATE`,
+    orderIds
+  );
+  if (!rows || rows.length !== orderIds.length) {
+    return { ok: false, status: 404, message: "存在无效订单，无法记录下载" };
+  }
+
+  const insertValues = [];
+  const insertParams = [];
+  for (const orderId of orderIds) {
+    insertValues.push("(?,?,?)");
+    insertParams.push(
+      orderId,
+      method,
+      method === "merge" ? JSON.stringify(orderIds.filter(id => id !== orderId)) : null
+    );
+  }
+  await conn.query(
+    `INSERT INTO shop_download_logs (order_id, method, related_order_ids_json) VALUES ${insertValues.join(",")}`,
+    insertParams
+  );
+
+  await conn.query(
+    `UPDATE shop_orders SET download_count = download_count + 1 WHERE id IN (${placeholders})`,
+    orderIds
+  );
+
+  const [updatedRows] = await conn.query(
+    `SELECT id, download_count FROM shop_orders WHERE id IN (${placeholders})`,
+    orderIds
+  );
+  const updatedCounts = {};
+  (updatedRows || []).forEach(row => {
+    updatedCounts[row.id] = Number(row.download_count || 0);
+  });
+  return { ok: true, updatedCounts };
+}
+
 /**
  * POST /api/admin/login
  * 管理员登录（硬编码账号密码，带暴力破解防护）
@@ -419,23 +481,120 @@ router.post("/api/admin/orders/:id/duplicate", _auth.requireAdmin, withHandler("
 }));
 
 /**
- * PUT /api/admin/orders/:id/csv-download
- * 记录一次 CSV 下载，download_count + 1
+ * POST /api/admin/csv-download
+ * 记录一次或多次 CSV 下载（单独下载 / 合并下载）
  */
-router.put("/api/admin/orders/:id/csv-download", _auth.requireAdmin, withHandler("adminOrderCsvDownload", async (req, res) => {
+router.post("/api/admin/csv-download", _auth.requireAdmin, withHandler("adminCsvDownload", async (req, res) => {
+  const { vArray, vInt, vEnum } = require("../utils/validate");
+  const idsCheck = vArray((req.body || {}).orderIds, { min: 1, max: 100, label: "订单列表" });
+  if (!idsCheck.ok) return sendJson(res, 400, { ok: false, message: idsCheck.message });
+  const methodCheck = vEnum((req.body || {}).method, ["single", "merge"], { label: "下载方式" });
+  if (!methodCheck.ok) return sendJson(res, 400, { ok: false, message: methodCheck.message });
+
+  const orderIds = [];
+  const seen = new Set();
+  for (let i = 0; i < idsCheck.value.length; i++) {
+    const idCheck = vInt(idsCheck.value[i], { min: 1, label: `订单ID[${i + 1}]` });
+    if (!idCheck.ok) return sendJson(res, 400, { ok: false, message: idCheck.message });
+    if (!seen.has(idCheck.value)) {
+      seen.add(idCheck.value);
+      orderIds.push(idCheck.value);
+    }
+  }
+
+  if (methodCheck.value === "single" && orderIds.length !== 1) {
+    return sendJson(res, 400, { ok: false, message: "单独下载只能记录 1 条订单" });
+  }
+  if (methodCheck.value === "merge" && orderIds.length < 2) {
+    return sendJson(res, 400, { ok: false, message: "合并下载至少需要 2 条订单" });
+  }
+
+  const result = await withTransaction(conn => recordCsvDownloads(conn, orderIds, methodCheck.value));
+  if (!result.ok) {
+    return sendJson(res, result.status || 400, { ok: false, message: result.message || "记录下载失败" });
+  }
+  sendJson(res, 200, { ok: true, data: { updatedCounts: result.updatedCounts } });
+}));
+
+/**
+ * PUT /api/admin/orders/:id/csv-download
+ * 兼容旧前端：记录单条 CSV 下载
+ */
+router.put("/api/admin/orders/:id/csv-download", _auth.requireAdmin, withHandler("adminOrderCsvDownloadLegacy", async (req, res) => {
+  const { vInt } = require("../utils/validate");
+  const idCheck = vInt(req.params.id, { min: 1, label: "订单ID" });
+  if (!idCheck.ok) return sendJson(res, 400, { ok: false, message: idCheck.message });
+
+  const result = await withTransaction(conn => recordCsvDownloads(conn, [idCheck.value], "single"));
+  if (!result.ok) {
+    return sendJson(res, result.status || 400, { ok: false, message: result.message || "记录下载失败" });
+  }
+  sendJson(res, 200, { ok: true, data: { updatedCounts: result.updatedCounts } });
+}));
+
+/**
+ * GET /api/admin/orders/:id/download-logs
+ * 查看单个订单的下载记录
+ */
+router.get("/api/admin/orders/:id/download-logs", _auth.requireAdmin, withHandler("adminOrderDownloadLogs", async (req, res) => {
   const { vInt } = require("../utils/validate");
   const idCheck = vInt(req.params.id, { min: 1, label: "订单ID" });
   if (!idCheck.ok) return sendJson(res, 400, { ok: false, message: idCheck.message });
   const id = idCheck.value;
 
-  const [result] = await safeQuery(
-    `UPDATE shop_orders SET download_count = download_count + 1 WHERE id = ?`,
+  const [orderRows] = await safeQuery(
+    `SELECT id, order_code, download_count FROM shop_orders WHERE id = ? LIMIT 1`,
     [id]
   );
-  if (!result || result.affectedRows === 0) {
+  if (!orderRows || orderRows.length === 0) {
     return sendJson(res, 404, { ok: false, message: "未找到该订单" });
   }
-  sendJson(res, 200, { ok: true });
+
+  const [logRows] = await safeQuery(
+    `SELECT id, method, related_order_ids_json, downloaded_at
+     FROM shop_download_logs
+     WHERE order_id = ?
+     ORDER BY downloaded_at DESC, id DESC`,
+    [id]
+  );
+
+  const logs = (logRows || []).map(row => ({
+    downloadedAt: row.downloaded_at,
+    method: row.method || "single",
+    relatedOrderIds: parseRelatedOrderIds(row.related_order_ids_json),
+  }));
+
+  const relatedIds = [...new Set(logs.flatMap(log => log.relatedOrderIds))];
+  const relatedCodeMap = new Map();
+  if (relatedIds.length > 0) {
+    const placeholders = relatedIds.map(() => "?").join(",");
+    const [relatedRows] = await safeQuery(
+      `SELECT id, order_code FROM shop_orders WHERE id IN (${placeholders})`,
+      relatedIds
+    );
+    (relatedRows || []).forEach(row => {
+      relatedCodeMap.set(Number(row.id), row.order_code);
+    });
+  }
+
+  const totalCount = Number(orderRows[0].download_count || 0);
+  const list = logs.map(log => ({
+    downloadedAt: log.downloadedAt,
+    method: log.method,
+    relatedOrderCodes: log.relatedOrderIds.map(relatedId => relatedCodeMap.get(relatedId) || `#${relatedId}`),
+  }));
+
+  sendJson(res, 200, {
+    ok: true,
+    data: {
+      orderId: id,
+      orderCode: orderRows[0].order_code,
+      totalCount,
+      loggedCount: list.length,
+      hasLegacyGap: totalCount > list.length,
+      list,
+    },
+  });
 }));
 
 /**
