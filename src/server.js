@@ -12,6 +12,7 @@ const { logger } = require("./utils/logger");
 
 const shopRoutes = require("./routes/shop");
 const adminRoutes = require("./routes/admin");
+const { createRateLimit, createConcurrencyLimit } = require("./middleware/rateLimit");
 
 process.on("uncaughtException", (err) => {
   logger.fatal({ error: err.message, stack: err.stack }, "Uncaught exception — process will exit");
@@ -25,18 +26,27 @@ process.on("unhandledRejection", (reason) => {
 const app = express();
 let serverInstance = null;
 let isShuttingDown = false;
+let inFlightRequests = 0;
 
 function setupGracefulShutdown(server) {
-  const shutdown = (signal) => {
+  const shutdown = async (signal) => {
     if (isShuttingDown) return;
     isShuttingDown = true;
-    logger.warn({ signal }, "Shutdown signal received");
-    const forceExitTimer = setTimeout(() => process.exit(1), 15000);
+    logger.warn({ signal, inFlight: inFlightRequests }, "Shutdown signal received");
+    const forceExitTimer = setTimeout(() => process.exit(1), 30000);
     forceExitTimer.unref();
-    server.close((err) => {
+    server.close(async (err) => {
+      if (err) logger.error({ error: err.message }, "HTTP server close error");
+      if (inFlightRequests > 0) {
+        logger.info({ inFlight: inFlightRequests }, "Waiting for in-flight requests");
+        await new Promise((resolve) => {
+          const check = setInterval(() => { if (inFlightRequests <= 0) { clearInterval(check); resolve(); } }, 200);
+        });
+      }
+      const { closePool } = require("./db/pool");
+      await closePool();
       clearTimeout(forceExitTimer);
-      if (err) { logger.error({ error: err.message }, "HTTP server close failed"); process.exit(1); }
-      logger.info({ signal }, "HTTP server closed gracefully");
+      logger.info({ signal }, "Shutdown complete");
       process.exit(0);
     });
   };
@@ -53,12 +63,42 @@ app.use(express.json({ limit: "2mb" }));
 app.use(compression());
 app.use("/api", requestContext);
 
+app.use("/api", (req, res, next) => {
+  inFlightRequests++;
+  const onDone = () => { inFlightRequests--; res.removeListener("finish", onDone); res.removeListener("close", onDone); };
+  res.once("finish", onDone);
+  res.once("close", onDone);
+  if (isShuttingDown) return res.status(503).json({ ok: false, message: "服务正在重启" });
+  next();
+});
+
+const rlOrderWrite = createRateLimit({ windowMs: 60000, max: 10, message: "提交过于频繁，请稍后再试" });
+const rlOrderRead = createRateLimit({ windowMs: 60000, max: 30, message: "查询过于频繁，请稍后再试" });
+const rlAiText = createRateLimit({ windowMs: 60000, max: 5, message: "AI 识别请求过于频繁" });
+const rlAiImage = createRateLimit({ windowMs: 60000, max: 3, message: "AI 图片识别请求过于频繁" });
+const aiConcurrency = createConcurrencyLimit(3, "AI 识别繁忙，请稍后再试");
+
+app.post("/api/shop/order", rlOrderWrite);
+app.get("/api/shop/order/:code", rlOrderRead);
+app.post("/api/shop/ai-text", rlAiText);
+app.post("/api/shop/ai-image", rlAiImage, aiConcurrency);
+
 app.use(shopRoutes);
 app.use(adminRoutes);
 
-// Health check
 app.get("/api/health", (req, res) => {
   res.json({ ok: true, buildTag: BUILD_TAG });
+});
+
+app.get("/api/health/ready", async (req, res) => {
+  if (isShuttingDown) return res.status(503).json({ ok: false, message: "shutting down" });
+  try {
+    const { safeQuery } = require("./db/pool");
+    await safeQuery("SELECT 1");
+    res.json({ ok: true, buildTag: BUILD_TAG });
+  } catch (e) {
+    res.status(503).json({ ok: false, message: "database unavailable" });
+  }
 });
 
 // Public palette endpoint (for admin stock config)

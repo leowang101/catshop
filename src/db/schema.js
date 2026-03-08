@@ -53,13 +53,18 @@ async function ensureSchema() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
 
-  // Add download_count column (idempotent)
+  const addColumnIfMissing = async (col, ddl) => {
+    try { await safeQuery(`ALTER TABLE shop_orders ADD COLUMN ${ddl}`); }
+    catch (e) { if (!e.message.includes("Duplicate column")) logger.warn({ error: e.message }, `ALTER TABLE add ${col}`); }
+  };
+  await addColumnIfMissing("download_count", "download_count INT NOT NULL DEFAULT 0");
+  await addColumnIfMissing("row_version", "row_version INT NOT NULL DEFAULT 1");
+  await addColumnIfMissing("client_submit_id", "client_submit_id VARCHAR(64) NULL");
+
   try {
-    await safeQuery(`ALTER TABLE shop_orders ADD COLUMN download_count INT NOT NULL DEFAULT 0`);
+    await safeQuery(`CREATE UNIQUE INDEX uk_client_submit_id ON shop_orders (client_submit_id)`);
   } catch (e) {
-    if (!e.message.includes("Duplicate column")) {
-      logger.warn({ error: e.message }, "ALTER TABLE add download_count");
-    }
+    if (!e.message.includes("Duplicate key name")) logger.warn({ error: e.message }, "CREATE INDEX uk_client_submit_id");
   }
 
   // Seed catshop_mapping

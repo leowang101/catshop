@@ -9,6 +9,7 @@ const { withHandler } = require("../utils/observability");
 const { ADMIN_TOKEN_MAX_AGE, DEFAULT_PAGE_SIZE } = require("../utils/constants");
 const { createAdminAuth } = require("../middleware/adminAuth");
 const { logger } = require("../utils/logger");
+const { buildOrderPlan } = require("../utils/orderPlan");
 
 function escapeLike(str) {
   return str.replace(/[%_\\]/g, ch => "\\" + ch);
@@ -221,7 +222,7 @@ router.get("/api/admin/orders", _auth.requireAdmin, withHandler("adminOrders", a
   const total = countRows[0]?.total || 0;
 
   const [rows] = await safeQuery(
-    `SELECT id, order_code, created_at, updated_at, color_count, total_qty, items_json, plan_json, taobao_order_no, brand_type, status, download_count
+    `SELECT id, order_code, created_at, updated_at, color_count, total_qty, items_json, plan_json, taobao_order_no, brand_type, status, download_count, row_version
      FROM shop_orders ${where}
      ORDER BY created_at DESC
      LIMIT ? OFFSET ?`,
@@ -239,6 +240,7 @@ router.get("/api/admin/orders", _auth.requireAdmin, withHandler("adminOrders", a
     brandType: r.brand_type || "mard",
     status: r.status || "pending",
     downloadCount: r.download_count || 0,
+    rowVersion: r.row_version || 1,
     items: (() => { try { return typeof r.items_json === "string" ? JSON.parse(r.items_json) : r.items_json; } catch (e) { logger.warn({ orderId: r.id, error: e.message }, "items_json parse failed"); return []; } })(),
     plan: (() => { try { return r.plan_json ? (typeof r.plan_json === "string" ? JSON.parse(r.plan_json) : r.plan_json) : null; } catch (e) { logger.warn({ orderId: r.id, error: e.message }, "plan_json parse failed"); return null; } })(),
   }));
@@ -258,7 +260,7 @@ router.get("/api/admin/orders/:id", _auth.requireAdmin, withHandler("adminOrderD
   if (!id) return sendJson(res, 400, { ok: false, message: "无效ID" });
 
   const [rows] = await safeQuery(
-    `SELECT id, order_code, created_at, updated_at, color_count, total_qty, items_json, plan_json, taobao_order_no, brand_type, status, download_count
+    `SELECT id, order_code, created_at, updated_at, color_count, total_qty, items_json, plan_json, taobao_order_no, brand_type, status, download_count, row_version
      FROM shop_orders WHERE id = ? LIMIT 1`,
     [id]
   );
@@ -286,6 +288,7 @@ router.get("/api/admin/orders/:id", _auth.requireAdmin, withHandler("adminOrderD
       brandType: r.brand_type || "mard",
       status: r.status || "pending",
       downloadCount: r.download_count || 0,
+      rowVersion: r.row_version || 1,
       items,
       plan,
     },
@@ -311,50 +314,40 @@ router.put("/api/admin/orders/:id/confirm", _auth.requireAdmin, withHandler("adm
   }
 
   const taobaoOrderNo = _vStr((req.body || {}).taobaoOrderNo, { max: 64 }).value || "";
+  const reqVersion = (req.body || {}).rowVersion;
 
-  const [rows] = await safeQuery(
-    `SELECT id, status, taobao_order_no FROM shop_orders WHERE id = ? LIMIT 1`,
-    [id]
-  );
-
-  if (!rows || rows.length === 0) {
-    return sendJson(res, 404, { ok: false, message: "未找到该订单" });
-  }
-
-  const currentStatus = rows[0].status || "pending";
-
-  if (action === "cancel") {
-    // 取消确认：只有 confirmed 状态才允许恢复到 pending
-    const [result] = await safeQuery(
-      `UPDATE shop_orders SET status = 'pending' WHERE id = ? AND status = 'confirmed'`,
+  const txResult = await withTransaction(async (conn) => {
+    const [rows] = await conn.query(
+      `SELECT id, status, taobao_order_no, row_version FROM shop_orders WHERE id = ? LIMIT 1 FOR UPDATE`,
       [id]
     );
-    if (!result || result.affectedRows === 0) {
-      return sendJson(res, 200, { ok: true, message: "订单未确认" });
+    if (!rows || rows.length === 0) {
+      return { status: 404, body: { ok: false, message: "未找到该订单" } };
     }
-    return sendJson(res, 200, { ok: true, message: "已取消确认" });
-  }
 
-  if (currentStatus === "confirmed") {
-    return sendJson(res, 200, { ok: true, message: "订单已确认" });
-  }
+    const row = rows[0];
+    if (reqVersion !== undefined && reqVersion !== null && Number(reqVersion) !== row.row_version) {
+      return { status: 409, body: { ok: false, message: "订单已被更新，请刷新后重试", currentVersion: row.row_version } };
+    }
 
-  // 确认时必须有淘宝备注（从请求体或已有数据）
-  const finalNo = (taobaoOrderNo || "").trim() || (rows[0].taobao_order_no || "").trim();
-  if (!finalNo) {
-    return sendJson(res, 400, { ok: false, message: "请先填写淘宝订单备注" });
-  }
+    if (action === "cancel") {
+      if (row.status !== "confirmed") return { status: 200, body: { ok: true, message: "订单未确认" } };
+      await conn.query(`UPDATE shop_orders SET status = 'pending', row_version = row_version + 1 WHERE id = ?`, [id]);
+      return { status: 200, body: { ok: true, message: "已取消确认", rowVersion: row.row_version + 1 } };
+    }
 
-  // 条件更新防止竞态：只有 pending 状态才允许确认
-  const [result] = await safeQuery(
-    `UPDATE shop_orders SET status = 'confirmed', taobao_order_no = ? WHERE id = ? AND status = 'pending'`,
-    [finalNo, id]
-  );
-  if (!result || result.affectedRows === 0) {
-    return sendJson(res, 200, { ok: true, message: "订单已确认" });
-  }
+    if (row.status === "confirmed") return { status: 200, body: { ok: true, message: "订单已确认" } };
 
-  sendJson(res, 200, { ok: true });
+    const finalNo = (taobaoOrderNo || "").trim() || (row.taobao_order_no || "").trim();
+    if (!finalNo) return { status: 400, body: { ok: false, message: "请先填写淘宝订单备注" } };
+
+    await conn.query(
+      `UPDATE shop_orders SET status = 'confirmed', taobao_order_no = ?, row_version = row_version + 1 WHERE id = ? AND status = 'pending'`,
+      [finalNo, id]
+    );
+    return { status: 200, body: { ok: true, rowVersion: row.row_version + 1 } };
+  });
+  sendJson(res, txResult.status, txResult.body);
 }));
 
 /**
@@ -478,6 +471,51 @@ router.post("/api/admin/orders/:id/duplicate", _auth.requireAdmin, withHandler("
       throw e;
     }
   }
+}));
+
+/**
+ * POST /api/admin/orders/:id/duplicate-and-confirm
+ * 拷贝清单并原子确认：在单个事务中复制订单数据、生成新口令、设置淘宝备注、确认新订单
+ */
+router.post("/api/admin/orders/:id/duplicate-and-confirm", _auth.requireAdmin, withHandler("adminOrderDuplicateAndConfirm", async (req, res) => {
+  const { vInt, vStr: _vStr } = require("../utils/validate");
+  const idCheck = vInt(req.params.id, { min: 1, label: "订单ID" });
+  if (!idCheck.ok) return sendJson(res, 400, { ok: false, message: idCheck.message });
+  const id = idCheck.value;
+
+  const noCheck = _vStr((req.body || {}).taobaoOrderNo, { min: 1, max: 64, label: "淘宝订单备注" });
+  if (!noCheck.ok) return sendJson(res, 400, { ok: false, message: noCheck.message });
+  const taobaoNo = noCheck.value;
+
+  const result = await withTransaction(async (conn) => {
+    const [rows] = await conn.query(
+      `SELECT items_json, plan_json, total_qty, color_count, brand_type FROM shop_orders WHERE id = ? LIMIT 1`,
+      [id]
+    );
+    if (!rows || rows.length === 0) {
+      return { status: 404, body: { ok: false, message: "未找到该订单" } };
+    }
+    const src = rows[0];
+    const payloadItems = typeof src.items_json === "string" ? src.items_json : JSON.stringify(src.items_json);
+    const payloadPlan = src.plan_json ? (typeof src.plan_json === "string" ? src.plan_json : JSON.stringify(src.plan_json)) : null;
+
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const newCode = generateOrderCode();
+      try {
+        const [ins] = await conn.query(
+          `INSERT INTO shop_orders (order_code, items_json, plan_json, total_qty, color_count, brand_type, taobao_order_no, status, row_version)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'confirmed', 1)`,
+          [newCode, payloadItems, payloadPlan, src.total_qty, src.color_count, src.brand_type || "mard", taobaoNo]
+        );
+        return { status: 200, body: { ok: true, id: ins.insertId, orderCode: newCode } };
+      } catch (e) {
+        if (e.code === "ER_DUP_ENTRY" && attempt < 5) continue;
+        throw e;
+      }
+    }
+    return { status: 409, body: { ok: false, message: "口令冲突，请重试" } };
+  });
+  sendJson(res, result.status, result.body);
 }));
 
 /**

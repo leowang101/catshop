@@ -7,9 +7,10 @@ const router = express.Router();
 function newTraceId() {
   return crypto.randomBytes(3).toString("hex");
 }
-const { safeQuery } = require("../db/pool");
+const { safeQuery, withTransaction } = require("../db/pool");
 const { sendJson } = require("../utils/respond");
 const { withHandler } = require("../utils/observability");
+const { buildOrderPlan } = require("../utils/orderPlan");
 const multer = require("multer");
 const {
   DASHSCOPE_API_KEY,
@@ -26,6 +27,14 @@ const { extractJsonFromText } = require("../utils/helpers");
 
 const VALID_CODES = new Set(PALETTE_ALL.map(c => c.code.toUpperCase()));
 const ORDER_CODE_RE = /^[a-z0-9-]{1,64}$/i;
+
+const ORDER_CODE_CHARS = "0123456789abcdefghijklmnopqrstuvwxyz";
+function generateOrderCode() {
+  const bytes = crypto.randomBytes(16);
+  let raw = "";
+  for (let i = 0; i < 16; i++) raw += ORDER_CODE_CHARS[bytes[i] % ORDER_CODE_CHARS.length];
+  return `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}-${raw.slice(12, 16)}`;
+}
 
 const aiImageUpload = multer({
   storage: multer.memoryStorage(),
@@ -283,30 +292,21 @@ function parseItemStrings(items) {
  * 保存补豆口令和明细到数据库
  *
  * Body:
- * - code: string       — 补豆口令（如 a1b2-c3d4-e5f6）
+ * - code: string (optional) — 已有口令（修改模式）；省略则由服务端生成
  * - items: array       — [{code, qty}]  色号和克数
- * - totalQty: number   — 累计克数
- * - colorCount: number — 累计色号数
+ * - brandType: string  — "mard" | "catshop"
+ * - clientSubmitId: string (optional) — 客户端幂等键（防重复创建）
+ * - rowVersion: number (optional) — 乐观锁版本号（修改模式时传入）
  */
 router.post("/api/shop/order", withHandler("shopOrder", async (req, res) => {
-  const { code, items, plan, brandType } = req.body || {};
+  const { code, items, brandType, clientSubmitId, rowVersion } = req.body || {};
   const { vStr: _vStr, vArray: _vArr, vEnum: _vEnum } = require("../utils/validate");
 
-  // 参数校验 — 口令
-  const codeCheck = _vStr(code, { min: 1, max: 64, label: "补豆口令" });
-  if (!codeCheck.ok) return sendJson(res, 400, { ok: false, message: codeCheck.message });
-  if (!ORDER_CODE_RE.test(codeCheck.value)) {
-    return sendJson(res, 400, { ok: false, message: "补豆口令格式无效" });
-  }
-
-  // 参数校验 — 品牌类型
   const brandT = _vEnum(brandType, ["mard", "catshop"]).ok ? brandType : "mard";
 
-  // 参数校验 — 明细列表
   const itemsCheck = _vArr(items, { min: 1, max: 500, label: "色号明细" });
   if (!itemsCheck.ok) return sendJson(res, 400, { ok: false, message: itemsCheck.message });
 
-  // 校验每项（含色号合法性）
   const normalizedItems = [];
   for (const item of items) {
     if (!item || typeof item.code !== "string" || !item.code.trim() || item.code.length > 10) {
@@ -323,60 +323,89 @@ router.post("/api/shop/order", withHandler("shopOrder", async (req, res) => {
     normalizedItems.push({ code: normalizedCode, qty: normalizedQty });
   }
 
-  // 参数校验 — plan（可选，限制 JSON 大小）
-  let planJson = null;
-  if (plan) {
-    const planStr = JSON.stringify(plan);
-    if (planStr.length > 100000) {
-      return sendJson(res, 400, { ok: false, message: "拆分方案数据过大" });
-    }
-    planJson = planStr;
-  }
+  // Load live spec config for server-side plan computation
+  let availableSpecs = { 20: true, 50: true, 100: true };
+  try {
+    const [cfgRows] = await safeQuery("SELECT config_value FROM shop_config WHERE config_key = 'available_specs' LIMIT 1");
+    if (cfgRows && cfgRows[0]) availableSpecs = JSON.parse(cfgRows[0].config_value);
+  } catch (e) { logger.warn({ error: e.message }, "load available_specs for plan"); }
 
-  const userId = null;
+  const canonicalPlan = buildOrderPlan(normalizedItems, availableSpecs);
+  const planJson = JSON.stringify({ specTotals: canonicalPlan.specTotals, perItem: canonicalPlan.perItem.map(p => ({ code: p.code, qty: p.qty, split: p.split })) });
   const itemsJson = JSON.stringify(normalizedItems);
   const totalQ = normalizedItems.reduce((s, i) => s + i.qty, 0);
   const colorC = normalizedItems.length;
-  const trimmedCode = codeCheck.value;
 
-  // 先检查是否已存在同口令订单
-  const [existing] = await safeQuery(
-    `SELECT id, status FROM shop_orders WHERE order_code = ? LIMIT 1`,
-    [trimmedCode]
-  );
+  const submitId = clientSubmitId && typeof clientSubmitId === "string" ? clientSubmitId.trim().slice(0, 64) : null;
 
-  if (existing && existing.length > 0) {
-    const row = existing[0];
-    // 已确认的订单不允许修改
-    if (row.status === "confirmed") {
-      return sendJson(res, 403, { ok: false, message: "客服已确认订单，无法修改" });
-    }
-    // pending 状态：更新订单内容
-    const [updateResult] = await safeQuery(
-      `UPDATE shop_orders SET items_json = ?, plan_json = ?, total_qty = ?, color_count = ?, brand_type = ?, updated_at = NOW()
-       WHERE id = ? AND status = 'pending'`,
-      [itemsJson, planJson, totalQ, colorC, brandT, row.id]
+  // Idempotency: if clientSubmitId already exists, return the existing order
+  if (submitId) {
+    const [dupRows] = await safeQuery(
+      `SELECT id, order_code, row_version FROM shop_orders WHERE client_submit_id = ? LIMIT 1`,
+      [submitId]
     );
-    if (!updateResult || updateResult.affectedRows < 1) {
-      return sendJson(res, 403, { ok: false, message: "客服已确认订单，无法修改" });
+    if (dupRows && dupRows.length > 0) {
+      return sendJson(res, 200, { ok: true, id: dupRows[0].id, code: dupRows[0].order_code, rowVersion: dupRows[0].row_version, idempotent: true });
     }
-    return sendJson(res, 200, { ok: true, id: row.id, updated: true });
   }
 
-  // 新建订单
-  try {
-    const [result] = await safeQuery(
-      `INSERT INTO shop_orders (order_code, user_id, items_json, plan_json, total_qty, color_count, brand_type)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [trimmedCode, userId, itemsJson, planJson, totalQ, colorC, brandT]
-    );
-    sendJson(res, 200, { ok: true, id: result.insertId });
-  } catch (e) {
-    // 口令唯一约束冲突（并发情况）
-    if (e.code === "ER_DUP_ENTRY") {
-      return sendJson(res, 409, { ok: false, message: "口令已存在，请重新生成" });
+  // Modify existing order (code provided)
+  if (code && typeof code === "string" && code.trim()) {
+    const trimmedCode = code.trim();
+    if (!ORDER_CODE_RE.test(trimmedCode)) {
+      return sendJson(res, 400, { ok: false, message: "补豆口令格式无效" });
     }
-    throw e;
+
+    const result = await withTransaction(async (conn) => {
+      const [existing] = await conn.query(
+        `SELECT id, status, row_version FROM shop_orders WHERE order_code = ? LIMIT 1 FOR UPDATE`,
+        [trimmedCode]
+      );
+      if (!existing || existing.length === 0) {
+        return { status: 404, body: { ok: false, message: "未找到该订单" } };
+      }
+      const row = existing[0];
+      if (row.status === "confirmed") {
+        return { status: 403, body: { ok: false, message: "客服已确认订单，无法修改" } };
+      }
+      if (rowVersion !== undefined && rowVersion !== null && Number(rowVersion) !== row.row_version) {
+        return { status: 409, body: { ok: false, message: "订单已被更新，请刷新后重试", currentVersion: row.row_version } };
+      }
+      await conn.query(
+        `UPDATE shop_orders SET items_json = ?, plan_json = ?, total_qty = ?, color_count = ?, brand_type = ?,
+         row_version = row_version + 1, updated_at = NOW()
+         WHERE id = ? AND status = 'pending'`,
+        [itemsJson, planJson, totalQ, colorC, brandT, row.id]
+      );
+      return { status: 200, body: { ok: true, id: row.id, code: trimmedCode, rowVersion: row.row_version + 1, updated: true } };
+    });
+    return sendJson(res, result.status, result.body);
+  }
+
+  // Create new order — server generates code
+  const maxRetries = 5;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const newCode = generateOrderCode();
+    try {
+      const [result] = await safeQuery(
+        `INSERT INTO shop_orders (order_code, user_id, items_json, plan_json, total_qty, color_count, brand_type, client_submit_id, row_version)
+         VALUES (?, NULL, ?, ?, ?, ?, ?, ?, 1)`,
+        [newCode, itemsJson, planJson, totalQ, colorC, brandT, submitId || null]
+      );
+      return sendJson(res, 200, { ok: true, id: result.insertId, code: newCode, rowVersion: 1 });
+    } catch (e) {
+      if (e.code === "ER_DUP_ENTRY") {
+        if (e.message.includes("uk_client_submit_id") && submitId) {
+          const [existing] = await safeQuery(`SELECT id, order_code, row_version FROM shop_orders WHERE client_submit_id = ? LIMIT 1`, [submitId]);
+          if (existing && existing.length > 0) {
+            return sendJson(res, 200, { ok: true, id: existing[0].id, code: existing[0].order_code, rowVersion: existing[0].row_version, idempotent: true });
+          }
+        }
+        if (attempt < maxRetries) continue;
+        return sendJson(res, 409, { ok: false, message: "口令冲突，请重试" });
+      }
+      throw e;
+    }
   }
 }));
 
@@ -390,16 +419,15 @@ router.get("/api/shop/order/:code", withHandler("shopOrderQuery", async (req, re
     return sendJson(res, 400, { ok: false, message: "请输入补豆口令或淘宝订单号" });
   }
 
-  // 先按 order_code 严格匹配，未命中再按 taobao_order_no 严格匹配
   let [rows] = await safeQuery(
-    `SELECT id, order_code, user_id, items_json, plan_json, total_qty, color_count, brand_type, status, created_at, updated_at
+    `SELECT id, order_code, user_id, items_json, plan_json, total_qty, color_count, brand_type, status, created_at, updated_at, row_version
      FROM shop_orders WHERE order_code = ? LIMIT 1`,
     [code]
   );
 
   if (!rows || rows.length === 0) {
     [rows] = await safeQuery(
-      `SELECT id, order_code, user_id, items_json, plan_json, total_qty, color_count, brand_type, status, created_at, updated_at
+      `SELECT id, order_code, user_id, items_json, plan_json, total_qty, color_count, brand_type, status, created_at, updated_at, row_version
        FROM shop_orders WHERE taobao_order_no = ? ORDER BY created_at DESC`,
       [code]
     );
@@ -446,6 +474,7 @@ router.get("/api/shop/order/:code", withHandler("shopOrderQuery", async (req, re
       status: row.status || "pending",
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      rowVersion: row.row_version || 1,
     },
   });
 }));

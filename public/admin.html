@@ -2038,21 +2038,9 @@ async function doDuplicate(){
   const no = (document.getElementById("duplicateInput").value || "").trim();
   if(!no){ showToast("请输入淘宝订单备注","error"); return; }
   try{
-    const res = await api("POST", `/api/admin/orders/${_duplicateOrderId}/duplicate`, { taobaoOrderNo: no });
+    const res = await api("POST", `/api/admin/orders/${_duplicateOrderId}/duplicate-and-confirm`, { taobaoOrderNo: no });
     if(res.ok){
-      // 拷贝成功后自动确认新订单
-      let autoConfirmOk = false;
-      try{
-        const cfmRes = await api("PUT", `/api/admin/orders/${res.id}/confirm`, { action: "confirm", taobaoOrderNo: no });
-        autoConfirmOk = !!cfmRes?.ok;
-      }catch(e){
-        autoConfirmOk = false;
-      }
-      if(autoConfirmOk){
-        showToast("清单已拷贝并确认，新口令：" + res.orderCode,"success");
-      } else {
-        showToast("清单已拷贝，但自动确认失败，请手动确认。新口令：" + res.orderCode,"error");
-      }
+      showToast("清单已拷贝并确认，新口令：" + res.orderCode,"success");
       document.getElementById("duplicateModal").classList.remove("active");
       document.getElementById("detailModal").classList.remove("active");
       loadOrders();
@@ -2097,19 +2085,25 @@ async function confirmOrder(id){
 async function _doConfirm(id){
   if(!confirm("确认后用户将无法修改此清单，是否继续？")) return;
   try{
-    const order = ordersCache[id];
+    const freshRes = await api("GET", `/api/admin/orders/${id}`);
+    if(!freshRes.ok) { showToast(freshRes.message || "拉取订单失败","error"); return; }
+    const fresh = freshRes.data;
+    if(fresh.status === "confirmed"){ showToast("订单已确认","info"); loadOrders(); return; }
+    ordersCache[id] = fresh;
     const res = await api("PUT", `/api/admin/orders/${id}/confirm`, {
       action: "confirm",
-      taobaoOrderNo: order?.taobaoOrderNo || "",
+      taobaoOrderNo: fresh.taobaoOrderNo || "",
+      rowVersion: fresh.rowVersion,
     });
     if(res.ok){
       showToast(res.message || "已确认","success");
-      if(ordersCache[id]) ordersCache[id].status = "confirmed";
+      if(ordersCache[id]){ ordersCache[id].status = "confirmed"; ordersCache[id].rowVersion = res.rowVersion || (fresh.rowVersion + 1); }
       _updateModalConfirmBtn(id);
       loadStats();
       loadOrders();
     } else {
       showToast(res.message || "确认失败","error");
+      if(res.currentVersion) loadOrders();
     }
   }catch(e){
     showToast("确认失败：" + (e.message || "未知错误"),"error");
@@ -2119,17 +2113,23 @@ async function _doConfirm(id){
 async function _doCancelConfirm(id){
   if(!confirm("取消确认后用户可再次修改此清单，是否继续？")) return;
   try{
+    const freshRes = await api("GET", `/api/admin/orders/${id}`);
+    if(!freshRes.ok) { showToast(freshRes.message || "拉取订单失败","error"); return; }
+    const fresh = freshRes.data;
+    ordersCache[id] = fresh;
     const res = await api("PUT", `/api/admin/orders/${id}/confirm`, {
       action: "cancel",
+      rowVersion: fresh.rowVersion,
     });
     if(res.ok){
       showToast(res.message || "已取消确认","success");
-      if(ordersCache[id]) ordersCache[id].status = "pending";
+      if(ordersCache[id]){ ordersCache[id].status = "pending"; ordersCache[id].rowVersion = res.rowVersion || (fresh.rowVersion + 1); }
       _updateModalConfirmBtn(id);
       loadStats();
       loadOrders();
     } else {
       showToast(res.message || "取消确认失败","error");
+      if(res.currentVersion) loadOrders();
     }
   }catch(e){
     showToast("取消确认失败：" + (e.message || "未知错误"),"error");

@@ -60,4 +60,11 @@ async function withTransaction(fn) {
   }
 }
 
-module.exports = { dbEnabled, getPool, safeQuery, withTransaction };
+async function closePool() {
+  if (_pool) {
+    try { await _pool.end(); } catch (e) { logger.warn({ error: e.message }, "pool.end() failed"); }
+    _pool = null;
+  }
+}
+
+module.exports = { dbEnabled, getPool, safeQuery, withTransaction, closePool };

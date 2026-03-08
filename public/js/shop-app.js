@@ -1535,7 +1535,8 @@
       return SPECIAL_SERIES_PREFIXES.some(p => upper.startsWith(p) && /\d/.test(upper.charAt(p.length)));
     }
 
-    let _modifyingOrderCode = null; // 修改模式下记住的口令
+    let _modifyingOrderCode = null;
+    let _modifyingRowVersion = null;
 
     /** 根据是否处于修改模式，同步底部结算按钮和确认弹窗的文案 */
     function _syncShopModifyUI(){
@@ -1830,6 +1831,12 @@
         _checkoutSubmitting = false;
       }
     }
+    function _genClientSubmitId(){
+      const a = new Uint8Array(16);
+      crypto.getRandomValues(a);
+      return Array.from(a, b => b.toString(16).padStart(2,"0")).join("");
+    }
+
     async function _doCheckout(){
       const entries = Object.entries(_beadShopQty).filter(([,q]) => q > 0);
       if(entries.length === 0){
@@ -1837,103 +1844,90 @@
         return;
       }
 
-      // 修改模式：提交前先检查订单是否已被客服确认
-      let code;
       const isModifyFlow = !!_modifyingOrderCode;
       if(isModifyFlow){
-        code = _modifyingOrderCode;
         try{
-          const chk = await apiGet("/api/shop/order/" + encodeURIComponent(code));
+          const chk = await apiGet("/api/shop/order/" + encodeURIComponent(_modifyingOrderCode));
           if(chk.ok && chk.data && chk.data.status === "confirmed"){
             toast("客服已确认该订单，无法修改","error");
             _modifyingOrderCode = null;
+            _modifyingRowVersion = null;
             _syncShopModifyUI();
             _initCheckoutPage();
             const pageEl = document.getElementById("pageBeadCheckout");
             if(pageEl) pageEl.dataset.backTo = "bead-shop";
             showPage("bead-checkout", {scrollTop:true});
             _renderCheckoutUI(chk.data.code, chk.data.items || [], "confirmed", chk.data.updatedAt || chk.data.createdAt, chk.data.plan || null);
-            try{ localStorage.setItem(CHECKOUT_CODE_KEY, code); }catch{}
+            try{ localStorage.setItem(CHECKOUT_CODE_KEY, chk.data.code); }catch{}
             return;
           }
-        }catch{
-          // 网络异常不阻断，后端会在保存时二次校验
-        }
-      } else {
-        code = _generateOrderCode();
+          if(chk.ok && chk.data && chk.data.rowVersion) _modifyingRowVersion = chk.data.rowVersion;
+        }catch{}
       }
 
       const _submitSorter = _shopBrandType === "catshop" ? _sortCatshopCodes : sortCodes;
       entries.sort((a,b) => _submitSorter(a[0], b[0]));
-      const totalQty = entries.reduce((sum,[,q]) => sum+q, 0);
-      const colorCount = entries.length;
-      const plan = _buildOrderPlan(entries);
-
       const items = entries.map(e => Array.isArray(e) ? { code: e[0], qty: e[1] } : e);
-      const planData = plan ? {
-        specTotals: plan.specTotals,
-        perItem: plan.perItem.map(p => ({ code: p.code, qty: p.qty, split: p.split })),
-      } : null;
 
-      // 先保存到服务端，成功后再展示口令
       showGlobalLoading("正在生成补豆口令…");
-      const MAX_RETRY = 2;
-      let savedCode = null;
-      for(let i = 0; i <= MAX_RETRY; i++){
-        try{
-          const saveRes = await apiPost("/api/shop/order", {
-            code,
-            items,
-            totalQty,
-            colorCount,
-            plan: planData,
-            brandType: _shopBrandType,
-          });
-          if (!saveRes || saveRes.ok !== true || !saveRes.id) {
-            throw new Error("订单保存未确认");
-          }
-          savedCode = code;
-          break;
-        } catch(e){
-          if(e.httpStatus === 403){
-            hideGlobalLoading();
-            toast("客服已确认，无法修改","error");
-            _initCheckoutPage();
-            const pageEl = document.getElementById("pageBeadCheckout");
-            if(pageEl) pageEl.dataset.backTo = "bead-shop";
-            showPage("bead-checkout", {scrollTop:true});
-            _renderCheckoutUI(code, entries, "confirmed", new Date());
-            return;
-          }
-          if(e.httpStatus === 409 && i < MAX_RETRY && !isModifyFlow){
-            code = _generateOrderCode();
-          } else {
-            hideGlobalLoading();
-            toast("补豆口令生成失败，请检查网络后重试","error");
-            return;
-          }
-        }
-      }
-      hideGlobalLoading();
+      const submitPayload = { items, brandType: _shopBrandType };
       if(isModifyFlow){
-        _modifyingOrderCode = null;
-        _syncShopModifyUI();
+        submitPayload.code = _modifyingOrderCode;
+        if(_modifyingRowVersion !== null && _modifyingRowVersion !== undefined) submitPayload.rowVersion = _modifyingRowVersion;
+      } else {
+        submitPayload.clientSubmitId = _genClientSubmitId();
       }
 
-      // 服务端保存成功，清空购物车
-      const clearedCodes = Object.keys(_beadShopQty);
-      _beadShopQty = {};
-      _saveShopQty();
-      clearedCodes.forEach(c => _syncMainListRow(c));
-      _updateShopFooter();
+      try{
+        const saveRes = await apiPost("/api/shop/order", submitPayload);
+        if(!saveRes || saveRes.ok !== true){
+          throw new Error(saveRes?.message || "订单保存失败");
+        }
+        hideGlobalLoading();
 
-      // 渲染结算页展示口令
-      _initCheckoutPage();
-      const pageEl = document.getElementById("pageBeadCheckout");
-      if(pageEl) pageEl.dataset.backTo = "bead-shop";
-      showPage("bead-checkout", {scrollTop:true});
-      _renderCheckoutUI(savedCode, entries, "pending", new Date(), plan);
-      try{ localStorage.setItem(CHECKOUT_CODE_KEY, savedCode); }catch{}
+        const savedCode = saveRes.code || _modifyingOrderCode;
+        const serverPlan = saveRes.plan || null;
+        const savedRowVersion = saveRes.rowVersion || 1;
+
+        if(isModifyFlow){
+          _modifyingOrderCode = null;
+          _modifyingRowVersion = null;
+          _syncShopModifyUI();
+        }
+
+        const clearedCodes = Object.keys(_beadShopQty);
+        _beadShopQty = {};
+        _saveShopQty();
+        clearedCodes.forEach(c => _syncMainListRow(c));
+        _updateShopFooter();
+
+        _initCheckoutPage();
+        const pageEl = document.getElementById("pageBeadCheckout");
+        if(pageEl) pageEl.dataset.backTo = "bead-shop";
+        showPage("bead-checkout", {scrollTop:true});
+        const plan = serverPlan || _buildOrderPlan(entries);
+        _renderCheckoutUI(savedCode, entries, "pending", new Date(), plan);
+        try{ localStorage.setItem(CHECKOUT_CODE_KEY, savedCode); }catch{}
+      }catch(e){
+        hideGlobalLoading();
+        if(e.httpStatus === 403){
+          toast("客服已确认，无法修改","error");
+          _modifyingOrderCode = null;
+          _modifyingRowVersion = null;
+          _syncShopModifyUI();
+          _initCheckoutPage();
+          const pageEl = document.getElementById("pageBeadCheckout");
+          if(pageEl) pageEl.dataset.backTo = "bead-shop";
+          showPage("bead-checkout", {scrollTop:true});
+          _renderCheckoutUI(_modifyingOrderCode || "", entries, "confirmed", new Date());
+          return;
+        }
+        if(e.httpStatus === 409){
+          toast("订单已被更新，请刷新后重试","error");
+          return;
+        }
+        toast(e.message || "补豆口令生成失败，请检查网络后重试","error");
+      }
     }
 
     /* ---- html2canvas 懒加载 ---- */
