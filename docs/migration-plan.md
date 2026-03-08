@@ -5,6 +5,55 @@
 
 ---
 
+## 迁移状态
+
+| 项目 | 状态 |
+|------|------|
+| **迁移完成日期** | 2026-03-08 |
+| **停机时长** | 约 5 分钟 |
+| **迁移数据量** | 2393 条订单，MAX(id) = 2405 |
+| **数据校验** | 总行数、状态分布、MAX(id)、总克数 四项全部通过 |
+| **DNS 切换** | `shopping` / `admin-shopping` 已指向 catshop (8.147.235.98) |
+| **beads 清理** | Nginx 旧配置已移除，shop 表保留（未归档） |
+
+### 迁移后数据库快照（2026-03-08）
+
+| 指标 | 值 |
+|------|---|
+| 总订单数 | 2,393 |
+| 待确认 (pending) | 1,120 |
+| 已确认 (confirmed) | 1,273 |
+| 总克数 | 7,609,277 g |
+| MAX(id) | 2,405 |
+| shop_config | 3 条 |
+| catshop_mapping | 295 条 |
+
+### 当前表结构 (`shop_orders`)
+
+```
+id              BIGINT AUTO_INCREMENT PRIMARY KEY
+order_code      VARCHAR(64) NOT NULL UNIQUE
+user_id         BIGINT NULL
+items_json      JSON NOT NULL
+plan_json       JSON NULL
+total_qty       INT NOT NULL DEFAULT 0
+color_count     INT NOT NULL DEFAULT 0
+taobao_order_no VARCHAR(64) NULL
+brand_type      VARCHAR(16) NOT NULL DEFAULT 'mard'
+status          ENUM('pending','confirmed') NOT NULL DEFAULT 'pending'
+created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+updated_at      TIMESTAMP NULL ON UPDATE CURRENT_TIMESTAMP
+download_count  INT NOT NULL DEFAULT 0          ← 2026-03-08 新增
+
+索引：
+  uk_order_code (order_code)
+  idx_shop_orders_created (created_at)
+  idx_shop_orders_status_created (status, created_at)
+  idx_shop_orders_taobao (taobao_order_no)
+```
+
+---
+
 ## 一、前置条件汇总
 
 | 条件 | 状态 |
@@ -38,10 +87,10 @@ FLUSH PRIVILEGES;
 在 catshop 库中执行。此步骤将 beads 中 **已确认（confirmed）的历史订单** 提前同步过来，占总数据量的 ~52%，减少正式切换时的数据量。
 
 ```sql
--- 1. 清除 catshop 中的测试数据（7 条）
+-- 1. 清除 catshop 中的测试数据
 TRUNCATE TABLE catshop.shop_orders;
 
--- 2. 同步 shop_config（3 条）
+-- 2. 同步 shop_config
 INSERT INTO catshop.shop_config (config_key, config_value, updated_at)
 SELECT config_key, config_value, updated_at
 FROM beads.shop_config;
@@ -221,12 +270,12 @@ ssh catshop "curl -s -o /dev/null -w '%{http_code}' -H 'Host: admin-shopping.aid
 
 | # | 检查项 | 通过 |
 |---|--------|------|
-| 1 | catshop.shop_orders confirmed 数量 = beads 一致 | ☐ |
-| 2 | catshop.shop_config 3 条数据已同步 | ☐ |
-| 3 | catshop Nginx 配置 `nginx -t` 通过 | ☐ |
-| 4 | catshop health 通过 shopping.aidoucang.cn Host | ☐ |
-| 5 | catshop admin 通过 admin-shopping.aidoucang.cn Host | ☐ |
-| 6 | 已记录预迁移水位线 max(id) | ☐ |
+| 1 | catshop.shop_orders confirmed 数量 = beads 一致 | ✅ |
+| 2 | catshop.shop_config 3 条数据已同步 | ✅ |
+| 3 | catshop Nginx 配置 `nginx -t` 通过 | ✅ |
+| 4 | catshop health 通过 shopping.aidoucang.cn Host | ✅ |
+| 5 | catshop admin 通过 admin-shopping.aidoucang.cn Host | ✅ |
+| 6 | 已记录预迁移水位线 max(id) | ✅ |
 
 ---
 
@@ -392,13 +441,7 @@ curl -s -o /dev/null -w '%{http_code}' https://admin-shopping.aidoucang.cn/
 curl -s https://shopping.aidoucang.cn/api/shop/order/<已知order_code>
 # 应返回订单数据
 
-# 5. 管理后台登录测试
-curl -s -X POST https://admin-shopping.aidoucang.cn/api/admin/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"mmjpd000000"}'
-# 应返回 token
-
-# 6. 查看 catshop PM2 日志确认请求正常到达
+# 5. 查看 catshop PM2 日志确认请求正常到达
 ssh catshop "pm2 logs catshop --lines 20 --nostream"
 ```
 
@@ -497,7 +540,7 @@ TRUNCATE TABLE catshop.shop_config;
 
 ## 五、迁移后清理（DNS 稳定 24 小时后）
 
-### 步骤 C1：撤销跨库权限
+### 步骤 C1：撤销跨库权限 ✅ 已完成
 
 ```sql
 REVOKE SELECT ON beads.shop_orders FROM 'catshop'@'%';
@@ -505,7 +548,7 @@ REVOKE SELECT ON beads.shop_config FROM 'catshop'@'%';
 FLUSH PRIVILEGES;
 ```
 
-### 步骤 C2：清理 beads 旧 Nginx 配置
+### 步骤 C2：清理 beads 旧 Nginx 配置 ✅ 已完成
 
 ```bash
 ssh beads "rm /etc/nginx/conf.d/shopping.aidoucang.cn.conf"
@@ -515,17 +558,11 @@ ssh beads "rm /etc/nginx/conf.d/admin-shopping.aidoucang.cn.conf.bak"
 ssh beads "nginx -t && systemctl reload nginx"
 ```
 
-### 步骤 C3：清理 catshop 旧域名 Nginx 配置（可选）
+### 步骤 C3：清理 catshop 旧域名 Nginx 配置 ✅ 已完成
 
-如果不再使用 `shop.aidoucang.cn` 和 `admin-shop.aidoucang.cn`：
+旧的 `shop.aidoucang.cn` 和 `admin-shop.aidoucang.cn` 配置已移除。
 
-```bash
-ssh catshop "rm /etc/nginx/conf.d/shop.aidoucang.cn.conf"
-ssh catshop "rm /etc/nginx/conf.d/admin-shop.aidoucang.cn.conf"
-ssh catshop "nginx -t && systemctl reload nginx"
-```
-
-### 步骤 C4：beads 数据库 shop 表归档（可选）
+### 步骤 C4：beads 数据库 shop 表归档（待定）
 
 确认 catshop 运行稳定一周后，可考虑将 beads 中的 shop 表重命名归档：
 
@@ -534,45 +571,57 @@ RENAME TABLE beads.shop_orders TO beads.shop_orders_archived;
 RENAME TABLE beads.shop_config TO beads.shop_config_archived;
 ```
 
+> **当前状态**：beads 中 shop 表仍保留，未归档。可作为灾难恢复的最后一道备份。
+
 ---
 
 ## 六、时间线总览
 
 ```
 【前置准备阶段 — 不停机，可白天执行】
-  P1  授权跨库只读                  ~1 分钟
-  P2  预迁移 confirmed 订单          ~5 秒
-  P3  验证预迁移数据                  ~1 分钟
-  P4  catshop Nginx 配置新域名        ~5 分钟
-  P5  验证新域名可达性                ~2 分钟
+  P1  授权跨库只读                  ~1 分钟    ✅
+  P2  预迁移 confirmed 订单          ~5 秒     ✅
+  P3  验证预迁移数据                  ~1 分钟    ✅
+  P4  catshop Nginx 配置新域名        ~5 分钟    ✅
+  P5  验证新域名可达性                ~2 分钟    ✅
 
 【正式迁移阶段 — 低峰期执行】
-  M1  冻结 beads 商城写入（维护页）    ~30 秒     ← 停机开始
-  M2  确认写入冻结，记录水位线          ~30 秒
-  M3  增量同步剩余数据                 ~10 秒
-  M4  数据一致性校验（Go/No-Go）       ~1 分钟
-  M5  DNS 切换                        ~1 分钟
-  M6  验证新服务                      ~2 分钟     ← 停机结束
-  M7  beads Nginx 改为重定向           ~1 分钟
+  M1  冻结 beads 商城写入（维护页）    ~30 秒     ✅ ← 停机开始
+  M2  确认写入冻结，记录水位线          ~30 秒     ✅
+  M3  增量同步剩余数据                 ~10 秒     ✅
+  M4  数据一致性校验（Go/No-Go）       ~1 分钟    ✅ 四项全部通过
+  M5  DNS 切换                        ~1 分钟    ✅
+  M6  验证新服务                      ~2 分钟    ✅ ← 停机结束
+  M7  beads Nginx 改为重定向           ~1 分钟    ✅
 
-  总停机时间预估：5-10 分钟
-  （DNS 传播可能额外 1-5 分钟，期间部分用户可能仍看到维护页）
+  实际停机时间：约 5 分钟
 
 【迁移后清理 — 24 小时后】
-  C1  撤销跨库权限
-  C2  清理 beads 旧 Nginx
-  C3  清理 catshop 旧域名配置
-  C4  beads shop 表归档（一周后）
+  C1  撤销跨库权限                              ✅
+  C2  清理 beads 旧 Nginx                       ✅
+  C3  清理 catshop 旧域名配置                    ✅
+  C4  beads shop 表归档（一周后）                 ☐ 待定（保留作为备份）
 ```
 
 ---
 
 ## 七、风险评估
 
-| 风险 | 概率 | 影响 | 缓解措施 |
-|------|------|------|---------|
-| 增量同步遗漏数据 | 低 | 高 | M4 四项交叉校验，不通过立即回滚 |
-| DNS 传播延迟 | 中 | 中 | beads 维护页兜底，不会丢数据 |
-| catshop 代码 bug | 低 | 高 | 已测试；M6 全链路验证 |
-| schema 不兼容 | 低 | 高 | P2 预迁移时提前暴露 |
-| RDS 连接异常 | 极低 | 高 | 同一 RDS 实例，跨库操作已验证 |
+| 风险 | 概率 | 影响 | 缓解措施 | 实际结果 |
+|------|------|------|---------|---------|
+| 增量同步遗漏数据 | 低 | 高 | M4 四项交叉校验，不通过立即回滚 | ✅ 未发生 |
+| DNS 传播延迟 | 中 | 中 | beads 维护页兜底，不会丢数据 | ✅ 传播迅速 |
+| catshop 代码 bug | 低 | 高 | 已测试；M6 全链路验证 | ✅ 未发生 |
+| schema 不兼容 | 低 | 高 | P2 预迁移时提前暴露 | ✅ 未发生 |
+| RDS 连接异常 | 极低 | 高 | 同一 RDS 实例，跨库操作已验证 | ✅ 未发生 |
+
+---
+
+## 八、迁移后变更记录
+
+| 日期 | 变更内容 |
+|------|---------|
+| 2026-03-08 | 迁移完成，DNS 切换至 catshop (8.147.235.98) |
+| 2026-03-08 | 新增 `download_count` 列（`shop_orders` 表），记录 CSV 下载次数 |
+| 2026-03-08 | 新增 `PUT /api/admin/orders/:id/csv-download` 端点 |
+| 2026-03-08 | 更新备案号：京ICP备2025156587号-3 / 京公网安备11011402055514号 |
