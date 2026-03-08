@@ -1066,7 +1066,7 @@ body[data-page="bead-brand"] .app-main{ max-width: none; padding: 0; overflow: h
   );
   background-size: 250% 100%;
   background-position: 100% 0;
-  animation: bannerShine 5s ease-in-out infinite;
+  animation: bannerShine 3s ease-in-out infinite;
   will-change: background-position;
   pointer-events: none;
 }
