@@ -1052,22 +1052,27 @@ body[data-page="bead-brand"] .app-main{ max-width: none; padding: 0; overflow: h
 .shop-banner:active{
   transform: scale(0.98);
 }
-/* 动态光效（用 transform 移动，GPU 加速流畅） */
+/* 对角线扫光效果 */
 .shop-banner-glow{
   position: absolute;
-  top: -30%;
-  left: -30%;
-  width: 60%;
-  height: 160%;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(255,255,255,.3) 0%, transparent 70%);
-  animation: bannerGlow 4s ease-in-out infinite;
-  will-change: transform;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(255,255,255,.15) 45%,
+    rgba(255,255,255,.25) 50%,
+    rgba(255,255,255,.15) 55%,
+    transparent 65%
+  );
+  background-size: 250% 100%;
+  background-position: 100% 0;
+  animation: bannerShine 5s ease-in-out infinite;
+  will-change: background-position;
   pointer-events: none;
 }
-@keyframes bannerGlow{
-  0%,100%{ transform: translateX(0); }
-  50%{ transform: translateX(130%); }
+@keyframes bannerShine{
+  0%,70%{ background-position: 100% 0; }
+  100%{ background-position: -50% 0; }
 }
 /* 装饰性模糊圆圈 */
 .shop-banner-circle{
