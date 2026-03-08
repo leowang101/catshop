@@ -270,11 +270,11 @@ tr:hover td{background:#fafbff}
 .taobao-field input{width:100%;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:14px;outline:none;transition:border .2s}
 .taobao-field input:focus{border-color:#667eea}
 
-/* ====== 合并导出按钮 ====== */
+/* ====== 合并下载按钮 ====== */
 .merge-export-btn{padding:6px 14px;border:1px solid #667eea;border-radius:6px;font-size:13px;background:#f0f2ff;color:#667eea;cursor:pointer;transition:background .15s,color .15s}
 .merge-export-btn:hover{background:#667eea;color:#fff}
 
-/* ====== 合并导出弹窗 ====== */
+/* ====== 合并下载弹窗 ====== */
 .merge-search-wrap{margin-bottom:12px}
 .merge-search-wrap input{width:100%;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:14px;outline:none;transition:border .2s;box-sizing:border-box}
 .merge-search-wrap input:focus{border-color:#667eea}
@@ -347,7 +347,7 @@ tr:hover td{background:#fafbff}
       <button class="settings-btn" id="settingsBtn">
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>设置</button>
       <button class="merge-export-btn" id="trialCodeBtn" style="border-color:#14b8a6;background:#f0fdfa;color:#14b8a6"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><path d="M12 2v20M2 12h20"/></svg>生成体验码</button>
-      <button class="merge-export-btn" id="mergeExportBtn"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>合并导出</button>
+      <button class="merge-export-btn" id="mergeExportBtn"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>合并下载</button>
       <button class="archive-btn" id="archiveBtn"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>回收站</button>
       <button class="logout-btn" id="logoutBtn"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>退出登录</button>
     </div>
@@ -559,11 +559,11 @@ tr:hover td{background:#fafbff}
   </div>
 </div>
 
-<!-- 合并导出弹窗 -->
+<!-- 合并下载弹窗 -->
 <div class="modal-overlay" id="mergeExportModal">
   <div class="modal" style="width:600px;max-height:80vh;display:flex;flex-direction:column">
     <div class="modal-header">
-      <h3>合并导出</h3>
+      <h3>合并下载</h3>
       <button class="modal-close-x" id="mergeModalCloseBtn" type="button" aria-label="关闭">&times;</button>
     </div>
     <div class="modal-body" style="flex:1;overflow-y:auto;padding:16px 20px">
@@ -579,7 +579,7 @@ tr:hover td{background:#fafbff}
         <span id="mergeSelectedCount" class="merge-selected-count">已选 0 条</span>
         <button id="mergeSelectAllBtn" class="merge-select-all-btn" type="button">全选</button>
       </div>
-      <button id="mergeExportAction" class="modal-action-btn" style="background:#667eea" disabled>合并导出</button>
+      <button id="mergeExportAction" class="modal-action-btn" style="background:#667eea" disabled>合并下载</button>
     </div>
   </div>
 </div>
@@ -1641,7 +1641,7 @@ async function downloadCSV(id){
   }
 }
 
-// ====== 合并导出 ======
+// ====== 合并下载 ======
 let mergeSelectedIds = new Set();
 let mergeOrdersCache = {};
 let mergeSearchTimer = null;
@@ -1958,7 +1958,7 @@ function init(){
     saveTaobao("overwrite");
   });
 
-  // 合并导出弹窗
+  // 合并下载弹窗
   document.getElementById("mergeExportBtn").addEventListener("click", openMergeExportModal);
   document.getElementById("mergeModalCloseBtn").addEventListener("click", closeMergeExportModal);
   document.getElementById("mergeExportModal").addEventListener("click", e => {
