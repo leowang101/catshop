@@ -174,7 +174,7 @@
         </div>
         <div class="ai-smart-tabs">
           <div class="tab-nav">
-            <button type="button" class="tab-btn active" data-tab="ai-text">AI识文字</button>
+            <button type="button" class="tab-btn active" data-tab="ai-text">文字识别</button>
             <button type="button" class="tab-btn" data-tab="ai-image">AI识图</button>
             <button type="button" class="tab-btn" data-tab="ai-csv">模板导入</button>
           </div>
@@ -188,7 +188,7 @@
           </div>
           <!-- Tab 1: AI识文字 -->
           <div class="tab-panel active" id="aiTextPanel">
-            <p class="ai-smart-desc">请将补豆需求粘贴到下方输入框后点击立即识别，例如：<br>– A1 10g C21 20g H3 40g...<br>– A1 1000 C21 2000 H3 4000...</p>
+            <p class="ai-smart-desc">请将补豆需求粘贴到下方输入框后点击识别，支持格式：<br>– A1、A9、A10 各50g<br>– A1 10g C21 20g H3 40g<br>– A1:50g 或 A1=50g<br>清单较长时建议使用「模板导入」</p>
             <textarea id="aiTextInput" class="ai-smart-textarea" placeholder="粘贴补豆需求文本..." rows="6"></textarea>
           </div>
           <!-- Tab 2: AI识图 -->
@@ -221,14 +221,29 @@
       </div>
     </div>
 
-    <!-- AI 识别提示弹窗 -->
+    <!-- 识别提示弹窗 -->
     <div class="bottom-sheet" id="aiWarningSheet">
       <div class="bottom-sheet-overlay" id="aiWarningSheetOverlay"></div>
       <div class="bottom-sheet-content">
-        <div class="bottom-sheet-header"><h3>AI 识别提示</h3></div>
+        <div class="bottom-sheet-header"><h3>识别提示</h3></div>
         <div class="bottom-sheet-body">
           <div class="sheet-confirm-text" id="aiWarningText"></div>
           <button class="sheet-btn-primary" id="aiWarningClose">我知道了</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 文字识别预览确认弹窗 -->
+    <div class="bottom-sheet" id="textReviewSheet">
+      <div class="bottom-sheet-overlay" id="textReviewOverlay"></div>
+      <div class="bottom-sheet-content">
+        <div class="bottom-sheet-header"><h3>识别结果预览</h3></div>
+        <div class="bottom-sheet-body" style="padding-bottom:8px">
+          <div id="textReviewBody" style="font-size:14px;line-height:1.7;max-height:50vh;overflow-y:auto"></div>
+        </div>
+        <div class="bottom-sheet-footer">
+          <button class="btn-ghost" id="textReviewCancel">取消</button>
+          <button class="sheet-btn-primary" id="textReviewConfirm">确认导入</button>
         </div>
       </div>
     </div>

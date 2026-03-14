@@ -898,6 +898,9 @@
         if(tab === "ai-csv"){
           if(submitText) submitText.textContent = "立即上传";
           if(submitBtn) submitBtn.classList.add("no-icon");
+        } else if(tab === "ai-text"){
+          if(submitText) submitText.textContent = "立即识别";
+          if(submitBtn) submitBtn.classList.remove("no-icon");
         } else {
           if(submitText) submitText.textContent = "立即AI识别";
           if(submitBtn) submitBtn.classList.remove("no-icon");
@@ -1030,7 +1033,7 @@
         return { changedCodes, skippedCodes };
       }
 
-      /** AI识文字提交 */
+      /** 文字识别提交（纯规则解析，无 AI） */
       async function _handleAiTextSubmit(){
         const textInput = document.getElementById("aiTextInput");
         const text = (textInput?.value || "").trim();
@@ -1039,9 +1042,8 @@
           return;
         }
 
-        // 禁用按钮 + 加载弹窗
         if(submitBtn) submitBtn.disabled = true;
-        showGlobalLoading("AI识别中，请稍候…");
+        showGlobalLoading("识别中…");
 
         try{
           const res = await apiPost("/api/shop/ai-text", { text });
@@ -1051,43 +1053,98 @@
           }
 
           const items = Array.isArray(res.items) ? res.items : [];
-          if(items.length === 0 && !res.warning){
-            toast("未识别到有效色号","info");
+          const status = res.status || "ok";
+
+          // manualRecommended → 不入车，提示改用模板导入
+          if(status === "manualRecommended"){
+            toast(res.suggestion || "内容较复杂，建议使用「模板导入」","info");
+            // 切换到模板导入 tab
+            const csvBtn = document.querySelector('.tab-btn[data-tab="ai-csv"]');
+            if(csvBtn) csvBtn.click();
             return;
           }
 
-          // 将结果应用到购物车
-          const { changedCodes } = _applyItemsToCart(items);
-
-          // 清空输入框
-          if(textInput) textInput.value = "";
-
-          // 关闭AI弹层
-          _closeAiSmartSheet();
-
-          // 同步列表UI
-          changedCodes.forEach(code => _syncMainListRow(code));
-          _updateShopFooter();
-
-          // 展开购物车
-          if(changedCodes.length > 0){
-            _openCartSheet();
-            toast("已识别 " + changedCodes.length + " 个色号","success");
+          if(items.length === 0){
+            toast(res.warning || "未识别到有效色号，请检查输入格式","info");
+            return;
           }
 
-          // 如果有 warning，延迟弹出提示
-          if(res.warning){
-            setTimeout(()=>{
-              const warnText = document.getElementById("aiWarningText");
-              if(warnText) warnText.textContent = res.warning;
-              if(warnSheet) warnSheet.classList.add("active");
-            }, 400);
+          // needsReview → 弹出预览确认
+          if(status === "needsReview"){
+            _showTextReviewSheet(items, res);
+            return;
           }
+
+          // ok → 直接导入
+          _commitTextParseResult(items, res, textInput);
         } catch(e){
-          toast(typeof formatUploadError === "function" ? formatUploadError(e, "AI识别失败，请重试") : (e?.message || "AI识别失败，请重试"), "error");
+          toast(typeof formatUploadError === "function" ? formatUploadError(e, "识别失败，请重试") : (e?.message || "识别失败，请重试"), "error");
         } finally {
           if(submitBtn) submitBtn.disabled = false;
           hideGlobalLoading();
+        }
+      }
+
+      /** 展示文字识别预览确认弹层 */
+      function _showTextReviewSheet(items, res){
+        const body = document.getElementById("textReviewBody");
+        const sheet = document.getElementById("textReviewSheet");
+        if(!body || !sheet) return;
+
+        let html = '<div style="margin-bottom:12px;color:#333"><strong>将导入 ' + items.length + ' 个色号</strong></div>';
+        html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">';
+        items.forEach(it => {
+          html += '<span style="background:#f0fdf4;color:#166534;padding:2px 8px;border-radius:12px;font-size:13px">' + it.code + ' ' + it.qty + 'g</span>';
+        });
+        html += '</div>';
+
+        if(res.warning){
+          html += '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.7;color:#92400e;margin-bottom:8px">';
+          html += res.warning;
+          html += '</div>';
+        }
+
+        body.innerHTML = html;
+        sheet.classList.add("active");
+
+        const confirmBtn = document.getElementById("textReviewConfirm");
+        const cancelBtn = document.getElementById("textReviewCancel");
+        const overlay = document.getElementById("textReviewOverlay");
+        const closeSheet = () => sheet.classList.remove("active");
+
+        const onConfirm = () => {
+          closeSheet();
+          _commitTextParseResult(items, res, document.getElementById("aiTextInput"));
+          confirmBtn.removeEventListener("click", onConfirm);
+        };
+        const onCancel = () => { closeSheet(); confirmBtn.removeEventListener("click", onConfirm); };
+
+        confirmBtn.addEventListener("click", onConfirm, { once: true });
+        cancelBtn?.addEventListener("click", onCancel, { once: true });
+        overlay?.addEventListener("click", onCancel, { once: true });
+      }
+
+      /** 确认导入文字解析结果 */
+      function _commitTextParseResult(items, res, textInput){
+        const { changedCodes } = _applyItemsToCart(items);
+
+        if(textInput) textInput.value = "";
+        _closeAiSmartSheet();
+
+        changedCodes.forEach(code => _syncMainListRow(code));
+        _updateShopFooter();
+
+        if(changedCodes.length > 0){
+          _openCartSheet();
+          toast("已识别 " + changedCodes.length + " 个色号","success");
+        }
+
+        if(res.warning){
+          setTimeout(()=>{
+            const warnText = document.getElementById("aiWarningText");
+            if(warnText) warnText.textContent = res.warning;
+            if(warnSheet) warnSheet.classList.add("active");
+          }, 400);
         }
       }
 
