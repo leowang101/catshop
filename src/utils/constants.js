@@ -24,7 +24,7 @@ const QWEN_TEXT_MODEL = process.env.QWEN_TEXT_MODEL || "qwen-plus";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const AI_IMAGE_TIMEOUT_MS = 180_000;
-const AI_TEXT_TIMEOUT_MS = 30_000;
+const AI_TEXT_TIMEOUT_MS = 90_000;
 
 const DEFAULT_PAGE_SIZE = 20;
 const ADMIN_TOKEN_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
