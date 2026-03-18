@@ -65,10 +65,53 @@ const RE_EACH = new RegExp(
 );
 
 // Pattern 2: code [sep] qty [unit]  — scanned globally
+// (?!\d) prevents backtracking from splitting e.g. "A17" into code "A1" + qty 7
 const RE_PAIR = new RegExp(
-  `(${CODE_PAT})\\s*[:=\\-]?\\s*(${QTY_PAT})\\s*([gGbB])?`,
+  `(${CODE_PAT})(?!\\d)\\s*[:=\\-]?\\s*(${QTY_PAT})\\s*([gGbB])?`,
   "g"
 );
+
+// Pattern 3: standalone "各/每 qty" line (no codes)
+const RE_TRAILING_EACH = new RegExp(
+  `^(?:各|每个?)\\s*(${QTY_PAT})\\s*([gGbB])?\\s*$`
+);
+const RE_CODE_ONLY = new RegExp(`^${CODE_PAT}$`, "i");
+
+/**
+ * Merge consecutive code-only lines with a following "各/每 qty" line
+ * so the existing RE_EACH pattern can handle them.
+ *
+ *   A17        →  A17, A20, A22 各10g
+ *   A20
+ *   A22
+ *   各10g
+ */
+function mergeCodeOnlyWithEach(lines) {
+  const result = [];
+  const buf = [];
+
+  for (const line of lines) {
+    if (RE_CODE_ONLY.test(line)) {
+      buf.push(line);
+      continue;
+    }
+
+    if (RE_TRAILING_EACH.test(line) && buf.length > 0) {
+      result.push(buf.join(", ") + " " + line);
+      buf.length = 0;
+      continue;
+    }
+
+    if (buf.length) {
+      for (const c of buf) result.push(c);
+      buf.length = 0;
+    }
+    result.push(line);
+  }
+
+  for (const c of buf) result.push(c);
+  return result;
+}
 
 function extractCodes(raw) {
   return raw
@@ -185,7 +228,8 @@ function parseStructuredText(text, opts) {
     };
   }
 
-  const lines = normalized.split("\n").filter(l => l.trim());
+  const rawLines = normalized.split("\n").filter(l => l.trim());
+  const lines = mergeCodeOnlyWithEach(rawLines);
   const allEntries = [];
   const allIssues = [];
   let globalUnit = null;
